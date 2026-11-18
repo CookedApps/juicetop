@@ -8,5 +8,6 @@ pub mod daemon;
 pub mod live;
 pub mod pricing;
 pub mod procs;
+pub mod report;
 pub mod sensors;
 pub mod store;
