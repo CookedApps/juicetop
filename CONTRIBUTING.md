@@ -5,7 +5,8 @@ sensor on your machine, open an issue and paste the output of `juicetop sensors`
 
 ## Setup
 
-You need Linux and Rust 1.89 or newer (https://rustup.rs).
+You need Rust 1.89 or newer (https://rustup.rs). Linux is the main platform; on macOS and Windows
+the code builds and the tests run, and reports from real machines there are welcome.
 
 ```bash
 git clone https://github.com/CookedApps/juicetop
@@ -65,5 +66,6 @@ Coding agents read that file first; it makes a fast tour for people too.
 
 ## Releases
 
-A maintainer tags `vX.Y.Z` on `main`. The release workflow builds Linux binaries for x86_64 and
-aarch64 and attaches them to a GitHub release, where `install.sh` finds them.
+A maintainer tags `vX.Y.Z` on `main`. The release workflow builds binaries for Linux (x86_64,
+aarch64), macOS (Apple Silicon, Intel) and Windows (x86_64) and attaches them to a GitHub
+release, where `install.sh` and `install.ps1` find them.

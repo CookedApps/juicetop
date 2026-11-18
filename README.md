@@ -2,14 +2,14 @@
 
 <p align="center">
   <b>What does your computer cost to run?</b><br>
-  A btop-style terminal dashboard for the power, money and CO2 your Linux machine uses.
+  A btop-style terminal dashboard for the power, money and CO2 your computer uses.
 </p>
 
 <p align="center">
   <a href="https://github.com/CookedApps/juicetop/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/CookedApps/juicetop/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/CookedApps/juicetop/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/CookedApps/juicetop"></a>
   <a href="#license"><img alt="License: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue"></a>
-  <img alt="Platform: Linux" src="https://img.shields.io/badge/platform-Linux-informational">
+  <img alt="Platform: Linux, macOS and Windows (untested)" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20(untested)-informational">
 </p>
 
 <p align="center">
@@ -37,12 +37,30 @@ tokens, and which hours tomorrow cost the least.
 
 ## Install
 
+**Linux:**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CookedApps/juicetop/main/install.sh | sh
 ```
 
 The script downloads the binary for x86_64 or aarch64, copies it to `/usr/local/bin` and starts
-the collector as a systemd service. It asks for sudo once. Then open the dashboard:
+the collector as a systemd service. It asks for sudo once.
+
+**macOS (untested):** the same command. It installs the Apple Silicon or Intel binary and starts
+the collector as a launchd daemon. Power readings need an Apple Silicon Mac; see
+[What it measures](#what-it-measures).
+
+**Windows (untested):** in PowerShell, as administrator for a collector that runs from boot or
+as yourself for one that runs from logon:
+
+```powershell
+irm https://raw.githubusercontent.com/CookedApps/juicetop/main/install.ps1 | iex
+```
+
+It puts `juicetop.exe` in `%LOCALAPPDATA%\Programs\juicetop`, adds that to your PATH and registers
+the collector with Task Scheduler.
+
+Then open the dashboard:
 
 ```bash
 juicetop
@@ -61,8 +79,9 @@ cargo install --locked --git https://github.com/CookedApps/juicetop
 sudo "$(command -v juicetop)" service install
 ```
 
-**Without root.** The collector runs as your user. You lose the RAPL CPU counters; see
-[What it measures](#what-it-measures).
+**Without root** (Linux). The collector runs as your user. You lose the RAPL CPU counters; see
+[What it measures](#what-it-measures). macOS has no user collector, because only root gets
+power readings there.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CookedApps/juicetop/main/install.sh | JUICETOP_SERVICE=user sh
@@ -77,6 +96,9 @@ release.
 sudo juicetop service uninstall        # --purge deletes the recorded data too
 juicetop service uninstall --user      # for the user service
 ```
+
+On Windows run `juicetop service uninstall` from an administrator terminal, or with `--user`
+for the logon task, then delete `%LOCALAPPDATA%\Programs\juicetop`.
 
 </details>
 
@@ -206,12 +228,17 @@ A total marked `*` used the fixed price for hours without market data.
 
 | Part | Source | Needs |
 |---|---|---|
-| CPU package | RAPL energy counters (`/sys/class/powercap`) | root |
-| CPU package on AMD APUs (Ryzen with integrated graphics) | amdgpu socket power, when RAPL is unreadable | nothing |
-| NVIDIA GPUs | NVML energy counter, or power readings on older cards | NVIDIA driver |
-| AMD GPUs | amdgpu hwmon power | nothing |
+| CPU package (Linux) | RAPL energy counters (`/sys/class/powercap`) | root |
+| CPU package on AMD APUs (Linux, Ryzen with integrated graphics) | amdgpu socket power, when RAPL is unreadable | nothing |
+| NVIDIA GPUs (Linux, Windows) | NVML energy counter, or power readings on older cards | NVIDIA driver |
+| AMD GPUs (Linux) | amdgpu hwmon power | nothing |
+| CPU, GPU and Neural Engine (macOS, Apple Silicon; untested) | `powermetrics` energy per sample | root |
+| CPU package (Windows; untested) | the `Energy Meter` performance counters | Windows 11 and a CPU that reports them |
 | Mainboard, RAM, drives, fans | your estimate (default 40 W) | |
 | Power supply loss | your efficiency estimate (default 90 %) | |
+
+Intel Macs and Windows machines without an energy meter get no CPU sensor; the base load estimate
+covers them. On a Mac the Neural Engine counts toward the GPU.
 
 Software sensors miss part of the system, so the total at the wall adds two estimates to what
 juicetop measures. If you own a plug-in energy meter, compare the two once and adjust the base
@@ -234,9 +261,14 @@ juicetop (dashboard) ◀──────────────────�
 The collector runs as root for RAPL, inside a systemd sandbox that allows writes to its two paths
 and network access to localhost. Every user can read its files, so the dashboard needs no root.
 
+On macOS the files live in `/Library/Application Support/juicetop` and `/var/run/juicetop`, on
+Windows in `%ProgramData%\juicetop` (or in your own profile for a user collector). Without `/proc`,
+juicetop reads processes through the operating system's own interface and finds model servers by
+their `--port` flag or default port.
+
 ## Privacy
 
-The collector reads local sensors and `/proc`, and talks to model servers on 127.0.0.1. The
+The collector reads local sensors and the process list, and talks to model servers on 127.0.0.1. The
 dashboard asks aWATTar for prices if you pick the dynamic tariff. Nothing else leaves your machine.
 
 ## Status
@@ -252,6 +284,9 @@ NVIDIA cards without an energy counter, model server discovery and metrics parsi
 
 **Not tested yet:**
 
+- macOS and Windows as a whole. The code builds and its unit tests run on both in CI, but nobody
+  has run the collector, the services (launchd, Task Scheduler) or `install.ps1` on a real machine
+- the `powermetrics` and Windows `Energy Meter` readings, and their units
 - `install.sh` from start to finish
 - the aarch64 binary on real hardware, distributions outside the Ubuntu family, systems without systemd
 - energy per token against a running model server
@@ -270,7 +305,7 @@ Open features, roughly by priority. Pull requests are welcome.
 - [ ] CSV and JSON export, a Prometheus endpoint
 - [ ] Retention settings and database maintenance
 - [ ] Packages for crates.io, AUR, Debian and Nix
-- [ ] macOS and Windows
+- [ ] macOS and Windows: test on real machines, Intel Macs, AMD and Intel GPUs on Windows
 
 ## Contributing
 

@@ -1,6 +1,6 @@
 # juicetop: notes for coding agents
 
-A Linux power monitor in Rust. A collector daemon records CPU and GPU energy into SQLite; a ratatui
+A power monitor in Rust for Linux, with untested ports to macOS and Windows. A collector daemon records CPU and GPU energy into SQLite; a ratatui
 dashboard turns it into watts, kWh, money and CO2. `README.md` has the user view.
 
 ## Map
@@ -8,7 +8,10 @@ dashboard turns it into watts, kWh, money and CO2. `README.md` has the user view
 | Path | What |
 |---|---|
 | `src/main.rs` | CLI (clap). Wiring and printing, no logic. |
-| `src/sensors.rs` | Power probes: RAPL, amdgpu hwmon (APU socket power or discrete GPU), NVML. Each returns joules since the last read. |
+| `src/sensors.rs` | Power probes: RAPL, amdgpu hwmon (APU socket power or discrete GPU), NVML, plus `PlatformSensor` for OS-specific ones. Each returns joules since the last read. |
+| `src/macos.rs`, `src/powermetrics.rs` | macOS: CPU, GPU and ANE energy from a `powermetrics` child process; its plist parser (portable, tested everywhere). |
+| `src/windows.rs` | Windows: CPU package power from the PDH `Energy Meter` counters, the elevation check, console detach. |
+| `src/sysproc.rs` | macOS and Windows: processes, CPU load and memory through `sysinfo`, where `/proc` is missing. |
 | `src/devices.rs` | Live device details: utilization, temperature, clock, memory, power limit. Never stored. |
 | `src/procs.rs` | Per-process attribution: CPU ticks from `/proc`, readable process names, proportional split. |
 | `src/models.rs` | Local model servers: discovery via listening sockets, Prometheus token counters, per-minute deltas. |
@@ -26,7 +29,7 @@ dashboard turns it into watts, kWh, money and CO2. `README.md` has the user view
 | `src/tui/widgets.rs` | Drawing primitives: braille area graphs, bars, meters, sparklines. |
 | `src/tui/settings.rs` | The settings form; each field parses and validates its own input. |
 | `src/demo.rs` | Deterministic example data (a two-GPU workstation). Used by `juicetop demo`, render tests and screenshots. |
-| `src/service.rs` | `juicetop service install/uninstall/status`; embeds `packaging/systemd/*.service`. |
+| `src/service/` | `juicetop service install/uninstall/status`: systemd (`packaging/systemd`), launchd (`packaging/launchd`), Task Scheduler (`packaging/windows`). |
 | `examples/screenshots.rs`, `scripts/screenshots.sh` | README screenshots from demo data. |
 
 ## Rules that keep it correct
@@ -49,6 +52,21 @@ dashboard turns it into watts, kWh, money and CO2. `README.md` has the user view
 - **Network.** The collector talks to model servers on 127.0.0.1 and nothing else; the systemd unit
   enforces this with `IPAddressAllow=localhost`. The dashboard and `summary` call aWATTar in
   dynamic mode.
+
+## Platforms
+
+Linux is the tested platform. macOS and Windows code sits behind `#[cfg]` and is untested on real
+machines; CI builds it and runs the tests on both. Keep Linux-only readers (sysfs, `/proc`)
+compiling everywhere when they only read files, so their tests run on every OS. To check the other
+targets locally without their C toolchains:
+
+```bash
+rustup target add x86_64-pc-windows-gnu aarch64-apple-darwin
+CC_x86_64_pc_windows_gnu=/bin/true AR_x86_64_pc_windows_gnu=/bin/true \
+  cargo clippy --all-targets --target x86_64-pc-windows-gnu
+CC_aarch64_apple_darwin=/bin/true AR_aarch64_apple_darwin=/bin/true \
+  cargo clippy --all-targets --target aarch64-apple-darwin
+```
 
 ## Commands
 
