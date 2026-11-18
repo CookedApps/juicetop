@@ -93,6 +93,29 @@ pub fn load_at(ts: i64) -> Load {
         procs.push(("pipewire", 1.5, 0.0, 0.0));
     }
     procs.push(("dockerd", 2.5 + 1.5 * noise(&[minute, 5]), 0.0, 0.0));
+    // Background services a workstation keeps running.
+    let background: [(&'static str, f64); 12] = [
+        ("prometheus", 2.2),
+        ("grafana", 1.4),
+        ("redis-server", 0.9),
+        ("nginx", 0.6),
+        ("tailscaled", 0.8),
+        ("jupyter-lab", 1.8),
+        ("tensorboard", 1.2),
+        ("Xwayland", 1.6),
+        ("systemd-journald", 0.5),
+        ("NetworkManager", 0.4),
+        ("sshd", 0.3),
+        ("containerd", 1.1),
+    ];
+    for (i, (name, w)) in background.iter().enumerate() {
+        procs.push((
+            name,
+            w * (0.7 + 0.6 * noise(&[minute, 60 + i as i64])),
+            0.0,
+            0.0,
+        ));
+    }
 
     // vLLM on GPU 0: a 70B model, always loaded; traffic follows the working day.
     let traffic = if weekend {

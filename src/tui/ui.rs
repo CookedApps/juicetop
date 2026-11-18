@@ -659,12 +659,14 @@ fn draw_procs(f: &mut Frame, app: &App, area: Rect) {
             // Rows fade towards the bottom of the list, like btop's process box.
             let th = theme::t();
             let shown = visible.min(procs.len() - offset).max(2);
-            let depth = (i - offset) as f64 / (shown - 1) as f64;
+            // The first third of the list stays bright, then rows fade.
+            let pos = (i - offset) as f64 / (shown - 1) as f64;
+            let depth = ((pos - 0.35) / 0.65).max(0.0);
             let fade = |c: Tone| {
                 if i == sel {
                     c
                 } else {
-                    c.lerp(th.faint, depth * 0.6)
+                    c.lerp(th.faint, depth * 0.7)
                 }
             };
             let base = fg(fade(if dim { th.dim } else { th.text }));
