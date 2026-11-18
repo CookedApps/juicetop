@@ -5,3 +5,4 @@
 pub mod config;
 pub mod procs;
 pub mod sensors;
+pub mod store;
