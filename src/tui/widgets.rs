@@ -134,7 +134,8 @@ pub fn hline(buf: &mut Buffer, area: Rect, value: f64, max: f64, color: Tone) {
     }
 }
 
-/// Vertical bars with eighth-block precision.
+/// Vertical bars drawn with braille dots, like btop's graphs. Each bar is colored with its
+/// entry in `colors`; without colors the bars follow the vertical `gradient`.
 pub struct Bars<'a> {
     pub values: &'a [f64],
     pub colors: &'a [Tone],
@@ -142,40 +143,89 @@ pub struct Bars<'a> {
     pub width: u16,
     pub gap: u16,
     pub highlight: Option<usize>,
+    pub gradient: Gradient,
 }
 
 impl Bars<'_> {
     pub fn render(&self, buf: &mut Buffer, area: Rect) {
-        const PARTS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-        if self.max <= 0.0 {
+        if self.max <= 0.0 || area.width == 0 {
             return;
         }
+        let mut columns: Vec<Option<Column>> = vec![None; area.width as usize * 2];
         for (i, v) in self.values.iter().enumerate() {
-            let x0 = area.x + i as u16 * (self.width + self.gap);
-            if x0 + self.width > area.x + area.width {
+            let x0 = i as u16 * (self.width + self.gap);
+            if x0 + self.width > area.width {
                 break;
             }
-            let eighths =
-                ((v / self.max).clamp(0.0, 1.0) * area.height as f64 * 8.0).round() as u16;
-            let mut color = self.colors.get(i).copied().unwrap_or(theme::t().text);
-            if self.highlight.is_some() && self.highlight != Some(i) {
-                color = color.lerp(theme::t().faint, 0.2);
-            }
-            for row in 0..area.height {
-                let from_bottom = area.height - 1 - row;
-                let level = eighths.saturating_sub(from_bottom * 8).min(8);
-                if level == 0 {
-                    continue;
+            let color = self.colors.get(i).copied().map(|c| {
+                if self.highlight.is_some() && self.highlight != Some(i) {
+                    c.lerp(theme::t().faint, 0.3)
+                } else {
+                    c
                 }
-                for dx in 0..self.width {
-                    if let Some(cell) = buf.cell_mut((x0 + dx, area.y + row)) {
-                        cell.set_char(PARTS[level as usize - 1])
-                            .set_fg(color.color());
+            });
+            // Leave one dot column free between touching bars.
+            let dots = (self.width * 2).saturating_sub(if self.gap == 0 && self.width > 0 {
+                1
+            } else {
+                0
+            });
+            for d in 0..dots {
+                let idx = (x0 * 2 + d) as usize;
+                if let Some(slot) = columns.get_mut(idx) {
+                    *slot = Some(Column {
+                        segments: vec![(*v, color)],
+                    });
+                }
+            }
+        }
+        self::area(buf, area, &columns, self.max, self.gradient);
+    }
+}
+
+/// A one-row braille graph, two samples per cell, filled from the bottom.
+pub fn dots(values: &[f64], width: usize, max: f64, color: Tone) -> Vec<Span<'static>> {
+    let n = width * 2;
+    // Fewer samples than dot columns: one per column, right aligned.
+    let cols: Vec<Option<f64>> = if values.len() < n {
+        std::iter::repeat_n(None, n - values.len())
+            .chain(values.iter().map(|v| Some(*v)))
+            .collect()
+    } else {
+        let pts: Vec<(f64, f64)> = values
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (i as f64, *v))
+            .collect();
+        resample(&pts, 0.0, values.len() as f64, n)
+    };
+    let level = |v: Option<f64>| -> usize {
+        match v {
+            Some(v) if max > 0.0 && v > 0.0 => {
+                ((v / max).clamp(0.0, 1.0) * 4.0).round().max(1.0) as usize
+            }
+            _ => 0,
+        }
+    };
+    (0..width)
+        .map(|cx| {
+            let mut bits = 0u32;
+            for side in 0..2 {
+                let l = level(cols[cx * 2 + side]);
+                for r in 0..4 {
+                    if 3 - r < l {
+                        bits |= braille_bit(side, r);
                     }
                 }
             }
-        }
-    }
+            let ch = if bits == 0 {
+                ' '
+            } else {
+                char::from_u32(0x2800 + bits).unwrap_or(' ')
+            };
+            Span::styled(ch.to_string(), Style::new().fg(color.color()))
+        })
+        .collect()
 }
 
 /// A segmented meter like btop's: `width` squares, filled ones colored along the gradient.
@@ -198,45 +248,16 @@ pub fn meter(frac: f64, width: usize, gradient: Gradient) -> Vec<Span<'static>> 
     spans
 }
 
-/// A one-line sparkline of block characters in one color.
-pub fn sparkline(values: &[f64], width: usize, max: f64, color: Tone) -> Vec<Span<'static>> {
-    const PARTS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    // Fewer values than columns: one column per value, right aligned, so there are no gaps.
-    if values.len() < width {
-        let mut spans = vec![Span::raw(" ".repeat(width - values.len()))];
-        spans.extend(values.iter().map(|v| {
-            let t = if max > 0.0 {
-                (v / max).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            Span::styled(
-                PARTS[((t * 7.0).round() as usize).min(7)].to_string(),
-                Style::new().fg(color.color()),
-            )
-        }));
-        return spans;
-    }
-    let cols = resample(
-        &values
-            .iter()
-            .enumerate()
-            .map(|(i, v)| (i as f64, *v))
-            .collect::<Vec<_>>(),
-        0.0,
-        values.len().max(1) as f64,
-        width,
-    );
-    cols.into_iter()
-        .map(|v| match v {
-            Some(v) if max > 0.0 => {
-                let t = (v / max).clamp(0.0, 1.0);
-                let i = ((t * 7.0).round() as usize).min(7);
-                Span::styled(PARTS[i].to_string(), Style::new().fg(color.color()))
-            }
-            _ => Span::styled(" ", Style::new()),
-        })
-        .collect()
+/// A meter in a single color.
+pub fn meter_tone(frac: f64, width: usize, color: Tone) -> Vec<Span<'static>> {
+    let filled = (frac.clamp(0.0, 1.0) * width as f64).round() as usize;
+    vec![
+        Span::styled("■".repeat(filled), Style::new().fg(color.color())),
+        Span::styled(
+            "■".repeat(width - filled.min(width)),
+            Style::new().fg(theme::t().faint.color()),
+        ),
+    ]
 }
 
 /// Paints a text in a horizontal gradient.
@@ -271,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn bars_use_eighths() {
+    fn bars_are_dotted_with_a_gap_between_bars() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 2, 1));
         Bars {
             values: &[1.0, 0.5],
@@ -280,10 +301,19 @@ mod tests {
             width: 1,
             gap: 0,
             highlight: None,
+            gradient: theme::t().power,
         }
         .render(&mut buf, Rect::new(0, 0, 2, 1));
-        assert_eq!(buf[(0, 0)].symbol(), "█");
-        assert_eq!(buf[(1, 0)].symbol(), "▄");
+        assert_eq!(buf[(0, 0)].symbol(), "⡇");
+        assert_eq!(buf[(1, 0)].symbol(), "⡄");
+    }
+
+    #[test]
+    fn dots_fill_from_the_bottom() {
+        let d = dots(&[4.0, 2.0, 0.0, 1.0], 2, 4.0, theme::t().cpu);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0].content, "⣧");
+        assert_eq!(d[1].content, "⢀");
     }
 
     #[test]

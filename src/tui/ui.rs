@@ -425,16 +425,14 @@ fn draw_power_info(f: &mut Frame, app: &App, area: Rect) {
         rows.push(("base + PSU".into(), n.base + n.psu, theme::t().estimate));
         for (name, w, c) in rows {
             let share = if n.wall > 0.0 { w / n.wall } else { 0.0 };
-            let bar_w = 6usize;
-            let filled = ((share * bar_w as f64).round() as usize).min(bar_w);
             let short: String = name.chars().take(11).collect();
-            lines.push(Line::from(vec![
+            let mut line = vec![
                 Span::styled("■ ", fg(c)),
                 Span::styled(format!("{short:<11}"), fg(theme::t().muted)),
                 Span::styled(format!("{:>7} ", fmt_watts(w)), fg(theme::t().text)),
-                Span::styled("▬".repeat(filled), fg(c)),
-                Span::styled("▬".repeat(bar_w - filled), fg(theme::t().faint)),
-            ]));
+            ];
+            line.extend(widgets::meter_tone(share, 6, c));
+            lines.push(Line::from(line));
         }
     }
     let inner = Rect {
@@ -536,7 +534,7 @@ fn draw_device(f: &mut Frame, app: &App, s: &SourceView, area: Rect) {
     let spark_w = w
         .saturating_sub(mem.as_ref().map_or(0, |m| m.chars().count()) + 1)
         .max(4);
-    let mut l3 = widgets::sparkline(&history, spark_w, limit, color.lerp(theme::t().faint, 0.3));
+    let mut l3 = widgets::dots(&history, spark_w, limit, color.lerp(theme::t().faint, 0.15));
     if let Some(m) = mem {
         l3.push(Span::styled(m, fg(theme::t().muted)));
     }
@@ -590,6 +588,17 @@ fn spark_color(p: &ProcRow) -> Tone {
         th.cpu
     };
     base.lerp(th.faint, 0.35)
+}
+
+/// The color of a process's CPU/GPU tag.
+fn tag_tone(p: &ProcRow) -> Option<Tone> {
+    let th = theme::t();
+    match p.gpu_share {
+        Some(g) if g >= 0.6 => Some(th.gpu(0)),
+        Some(g) if g >= 0.15 => Some(th.muted),
+        Some(_) => Some(th.cpu),
+        None => None,
+    }
 }
 
 pub fn tag(p: &ProcRow) -> Span<'static> {
@@ -647,27 +656,40 @@ fn draw_procs(f: &mut Frame, app: &App, area: Rect) {
                 .get(&p.name)
                 .map(|h| h.iter().copied().collect())
                 .unwrap_or_default();
-            let base = if dim {
-                fg(theme::t().dim)
-            } else {
-                fg(theme::t().text)
+            // Rows fade towards the bottom of the list, like btop's process box.
+            let th = theme::t();
+            let shown = visible.min(procs.len() - offset).max(2);
+            let depth = (i - offset) as f64 / (shown - 1) as f64;
+            let fade = |c: Tone| {
+                if i == sel {
+                    c
+                } else {
+                    c.lerp(th.faint, depth * 0.6)
+                }
             };
+            let base = fg(fade(if dim { th.dim } else { th.text }));
+            let mut tag_span = tag(p);
+            if let Some(c) = tag_span.style.fg {
+                tag_span.style = tag_span
+                    .style
+                    .fg(tag_tone(p).map(fade).map_or(c, |t| t.color()));
+            }
             let row = Row::new(vec![
                 Line::styled(p.name.clone(), base),
-                Line::from(tag(p)),
+                Line::from(tag_span),
                 Line::styled(p.now_w.map(fmt_watts).unwrap_or_default(), base)
                     .alignment(Alignment::Right),
-                Line::from(widgets::sparkline(
+                Line::from(widgets::dots(
                     &hist,
                     spark_w,
                     spark_max,
-                    spark_color(p),
+                    fade(spark_color(p)),
                 )),
-                Line::styled(fmt_watts(p.avg_w), fg(theme::t().muted)).alignment(Alignment::Right),
+                Line::styled(fmt_watts(p.avg_w), fg(fade(th.muted))).alignment(Alignment::Right),
                 Line::styled(fmt_kwh(p.kwh), base).alignment(Alignment::Right),
-                Line::styled(fmt_money(p.cost, cur), fg(theme::t().money))
+                Line::styled(fmt_money(p.cost, cur), fg(fade(th.money)))
                     .alignment(Alignment::Right),
-                Line::styled(format!("{:.0}%", p.share * 100.0), fg(theme::t().muted))
+                Line::styled(format!("{:.0}%", p.share * 100.0), fg(fade(th.muted)))
                     .alignment(Alignment::Right),
             ]);
             let y = inner.y + 1 + (i - offset) as u16;
@@ -817,6 +839,7 @@ fn draw_bars(f: &mut Frame, app: &App, area: Rect) {
         width,
         gap,
         highlight: Some(sel),
+        gradient: theme::t().power,
     }
     .render(buf, plot);
     let every = 5u16.div_ceil(width + gap).max(1) as usize;
@@ -978,6 +1001,7 @@ fn draw_prices(f: &mut Frame, app: &App, area: Rect) {
         width,
         gap: 0,
         highlight: None,
+        gradient: theme::t().price,
     }
     .render(buf, plot);
     let now_idx = o.slots.iter().skip(skip).position(|s| s.0 == now_hour);
