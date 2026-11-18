@@ -162,6 +162,15 @@ impl Theme {
     pub fn gpu(&self, i: usize) -> Tone {
         self.gpus[i % self.gpus.len()]
     }
+
+    /// `color` mixed out of the background: dark at `t = 0`, full color at `t = 1`.
+    /// ANSI colors cannot be mixed and come back unchanged.
+    pub fn rise(&self, color: Tone, t: f64) -> Tone {
+        match (self.popup_bg, color) {
+            (Tone::Rgb(..), Tone::Rgb(..)) => self.popup_bg.lerp(color, 0.28 + 0.72 * t),
+            _ => color,
+        }
+    }
 }
 
 const POWER_JUICE: &[Tone] = &[
