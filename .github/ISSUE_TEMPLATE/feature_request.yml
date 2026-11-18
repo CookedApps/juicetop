@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest an idea or a new sensor, tariff or view
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to find out or do?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could juicetop help?
+  - type: textarea
+    id: context
+    attributes:
+      label: Hardware, tariff or other context

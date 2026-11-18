@@ -1,0 +1,46 @@
+name: Bug report
+description: Something is wrong or a sensor is not detected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: sensors
+    attributes:
+      label: Output of `juicetop sensors`
+      description: Run it as root too if the collector runs as a system service.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: CPU and GPU models
+      placeholder: e.g. Intel Core i7-12700K, AMD Radeon RX 7800 XT
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution, kernel and juicetop version
+      placeholder: e.g. Fedora 41, 6.12.4, juicetop 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: How does the collector run?
+      options:
+        - system service (root)
+        - user service
+        - by hand
+  - type: textarea
+    id: logs
+    attributes:
+      label: Collector log
+      description: "`journalctl -u juicetop -n 50` (or `journalctl --user -u juicetop -n 50`)"
+      render: text
