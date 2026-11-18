@@ -266,6 +266,8 @@ juicetop is young. This list shows what has been checked so far.
 **On real hardware:** an AMD Ryzen 9 desktop with an NVIDIA RTX 40-series GPU on an Ubuntu 24.04
 based distribution. Collector as a system service (RAPL) and as a user (socket power), the
 release binaries for x86_64, the dashboard, `summary`, `sensors` and dynamic prices from aWATTar.
+An Apple M2 Pro Mac: `install.sh`, the launchd service, CPU and GPU power from `powermetrics`
+and the dashboard.
 
 **In automated tests only:** RAPL on Intel CPUs, AMD GPUs, several GPUs, multi-socket machines,
 NVIDIA cards without an energy counter, model server discovery and metrics parsing, the setup.
