@@ -154,7 +154,7 @@ fn process_name(dir: &Path, comm: &str) -> String {
 
 /// Picks a readable name: kernel threads are grouped, interpreters show their script,
 /// and names cut off at 15 characters are completed from the command line.
-fn name_from(comm: &str, cmdline: &[u8]) -> String {
+pub fn name_from(comm: &str, cmdline: &[u8]) -> String {
     if cmdline.is_empty() {
         return "[kernel]".into();
     }
@@ -182,12 +182,44 @@ fn name_from(comm: &str, cmdline: &[u8]) -> String {
                 .is_some_and(|v| v.chars().all(|c| c.is_ascii_digit() || c == '.'))
     });
     if is_interpreter {
-        let script = args.iter().skip(1).find(|a| !a.starts_with('-'));
-        if let Some(script) = script {
-            return format!("{base}:{}", basename(script));
+        let mut it = args.iter().skip(1);
+        while let Some(a) = it.next() {
+            // `python -m vllm.entrypoints.openai.api_server` is "vllm".
+            if a == "-m"
+                && let Some(module) = it.next()
+            {
+                return module.split('.').next().unwrap_or(module).to_string();
+            }
+            if a.starts_with('-') {
+                continue;
+            }
+            return script_name(a);
         }
     }
     base
+}
+
+/// A script's file name, with its folder when the name alone says nothing ("ComfyUI/main.py").
+fn script_name(path: &str) -> String {
+    const GENERIC: &[&str] = &[
+        "main.py",
+        "app.py",
+        "server.py",
+        "run.py",
+        "__main__.py",
+        "index.js",
+        "main.js",
+        "server.js",
+        "app.js",
+    ];
+    let file = basename(path);
+    if GENERIC.contains(&file.as_str()) {
+        let mut parts = path.rsplit('/').skip(1);
+        if let Some(dir) = parts.next().filter(|d| !d.is_empty() && *d != ".") {
+            return format!("{}/{file}", basename(dir));
+        }
+    }
+    file
 }
 
 fn basename(path: &str) -> String {
@@ -233,9 +265,24 @@ mod tests {
                 "python3",
                 b"/usr/bin/python3\0-u\0/opt/ComfyUI/main.py\0--listen\0"
             ),
-            "python3:main.py"
+            "ComfyUI/main.py"
         );
-        assert_eq!(name_from("node", b"node\0server.js\0"), "node:server.js");
+        assert_eq!(
+            name_from("python3", b"python3\0train.py\0--epochs\x003\0"),
+            "train.py"
+        );
+        assert_eq!(
+            name_from(
+                "python3",
+                b"python3\0-m\0vllm.entrypoints.openai.api_server\0"
+            ),
+            "vllm"
+        );
+        assert_eq!(
+            name_from("python3", b"/usr/bin/python3\0/opt/venv/bin/vllm\0serve\0"),
+            "vllm"
+        );
+        assert_eq!(name_from("node", b"node\0server.js\0"), "server.js");
         assert_eq!(name_from("python3.12", b"python3.12\0"), "python3.12");
     }
 

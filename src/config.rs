@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// ISO country code chosen during setup, e.g. "DE". Empty until setup ran.
+    pub country: String,
     /// Symbol printed after amounts, e.g. "€" or "$".
     pub currency: String,
     pub price: PriceConfig,
@@ -51,6 +53,8 @@ pub struct PriceConfig {
     pub fixed_ct_per_kwh: f64,
     pub time_of_use: TimeOfUseConfig,
     pub dynamic: DynamicConfig,
+    /// Length of the cheapest upcoming window shown for time of use and dynamic tariffs.
+    pub cheapest_window_hours: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -106,6 +110,7 @@ pub struct DataConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            country: String::new(),
             currency: "€".into(),
             price: PriceConfig::default(),
             co2: Co2Config::default(),
@@ -122,6 +127,7 @@ impl Default for PriceConfig {
             fixed_ct_per_kwh: 35.0,
             time_of_use: TimeOfUseConfig::default(),
             dynamic: DynamicConfig::default(),
+            cheapest_window_hours: 4,
         }
     }
 }
@@ -205,6 +211,7 @@ impl Config {
         if self.co2.g_per_kwh.is_nan() || self.co2.g_per_kwh < 0.0 {
             self.co2.g_per_kwh = 0.0;
         }
+        self.price.cheapest_window_hours = self.price.cheapest_window_hours.clamp(1, 12);
         let r = self.price.dynamic.region.to_ascii_lowercase();
         self.price.dynamic.region = if r == "at" { "at".into() } else { "de".into() };
         self

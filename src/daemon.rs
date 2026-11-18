@@ -11,10 +11,12 @@ use anyhow::{Result, bail};
 use nvml_wrapper::Nvml;
 use nvml_wrapper::enums::device::UsedGpuMemory;
 
-use crate::live::{LIVE_SECONDS, LiveSample, LiveSnapshot, LiveSource};
+use crate::devices::DeviceStats;
+use crate::live::{LIVE_SECONDS, LiveProc, LiveSample, LiveSnapshot, LiveSource};
+use crate::models::ModelWatcher;
 use crate::procs::{self, ProcTracker};
 use crate::sensors::{self, NvidiaGpu, Sensor, SourceKind};
-use crate::store::{MinuteBatch, Store};
+use crate::store::{MinuteBatch, ProcEnergy, Store};
 
 /// Process names kept per minute; the rest is summed into `OTHER`.
 const TOP_PROCS_PER_MINUTE: usize = 30;
@@ -28,6 +30,10 @@ pub struct DaemonOpts {
     pub live: PathBuf,
     pub raw_retention_hours: u64,
     pub procs: bool,
+    /// Look for local model servers and count their tokens.
+    pub models: bool,
+    /// Extra Prometheus metrics URLs of model servers.
+    pub model_endpoints: Vec<String>,
 }
 
 pub fn run(opts: DaemonOpts) -> Result<()> {
@@ -73,9 +79,14 @@ pub fn run(opts: DaemonOpts) -> Result<()> {
         tracker.scan();
     }
 
+    let mut devices = DeviceStats::new();
+    let models = opts
+        .models
+        .then(|| ModelWatcher::start(opts.model_endpoints.clone()));
     let mut batch: Option<MinuteBatch> = None;
     let mut ring: VecDeque<LiveSample> = VecDeque::with_capacity(LIVE_SECONDS + 1);
-    let mut proc_ring: VecDeque<HashMap<String, f64>> = VecDeque::with_capacity(PROC_WINDOW + 1);
+    let mut proc_ring: VecDeque<HashMap<String, ProcEnergy>> =
+        VecDeque::with_capacity(PROC_WINDOW + 1);
     let mut flushed_until = unix_now().0;
     let mut last = std::time::Instant::now();
 
@@ -102,7 +113,10 @@ pub fn run(opts: DaemonOpts) -> Result<()> {
         // Close the previous minute when a new one starts.
         let minute = ts.div_euclid(60) * 60;
         if batch.as_ref().is_some_and(|b| b.minute != minute) {
-            let done = batch.take().expect("checked above");
+            let mut done = batch.take().expect("checked above");
+            if let Some(m) = &models {
+                done.tokens = m.take_minute();
+            }
             write_minute(&mut store, done, ts - retention);
             flushed_until = minute;
         }
@@ -117,8 +131,8 @@ pub fn run(opts: DaemonOpts) -> Result<()> {
                 *b.totals.entry(*id).or_default() += j;
             }
         }
-        for (name, j) in &proc_joules {
-            *b.procs.entry(name.clone()).or_default() += j;
+        for (name, e) in &proc_joules {
+            *b.procs.entry(name.clone()).or_default() += *e;
         }
 
         ring.push_back(LiveSample {
@@ -132,21 +146,28 @@ pub fn run(opts: DaemonOpts) -> Result<()> {
         while proc_ring.len() > PROC_WINDOW {
             proc_ring.pop_front();
         }
+        let split = live_proc_watts(&proc_ring);
         let snap = LiveSnapshot {
             pid: std::process::id(),
             updated: ts,
             flushed_until,
             sources: live_sources.clone(),
             samples: ring.iter().cloned().collect(),
-            procs: live_proc_watts(&proc_ring),
+            procs: split.iter().map(|p| (p.name.clone(), p.total_w)).collect(),
             notes: notes.clone(),
+            proc_split: split,
+            devices: devices.collect(&sensors, nvml.as_ref()),
+            models: models.as_ref().map(|m| m.live()).unwrap_or_default(),
         };
         if let Err(e) = snap.write(&opts.live) {
             eprintln!("juicetop: {e:#}");
         }
     }
 
-    if let Some(done) = batch.take() {
+    if let Some(mut done) = batch.take() {
+        if let Some(m) = &models {
+            done.tokens = m.take_minute();
+        }
         let until = unix_now().0;
         write_minute(&mut store, done, until - retention);
         let snap = LiveSnapshot {
@@ -157,6 +178,9 @@ pub fn run(opts: DaemonOpts) -> Result<()> {
             samples: Vec::new(),
             procs: Vec::new(),
             notes,
+            proc_split: Vec::new(),
+            devices: Vec::new(),
+            models: Vec::new(),
         };
         let _ = snap.write(&opts.live);
     }
@@ -173,14 +197,17 @@ fn write_minute(store: &mut Store, mut batch: MinuteBatch, raw_cutoff: i64) {
 
 /// Keeps the `n` largest entries and sums the rest into `OTHER`.
 fn top_n(
-    procs: std::collections::BTreeMap<String, f64>,
+    procs: std::collections::BTreeMap<String, ProcEnergy>,
     n: usize,
-) -> std::collections::BTreeMap<String, f64> {
-    let mut v: Vec<(String, f64)> = procs.into_iter().collect();
-    v.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let rest: f64 = v.iter().skip(n).map(|(_, j)| j).sum();
-    let mut out: std::collections::BTreeMap<String, f64> = v.into_iter().take(n).collect();
-    if rest > 0.0 {
+) -> std::collections::BTreeMap<String, ProcEnergy> {
+    let mut v: Vec<(String, ProcEnergy)> = procs.into_iter().collect();
+    v.sort_by(|a, b| b.1.total.total_cmp(&a.1.total));
+    let mut rest = ProcEnergy::default();
+    for (_, e) in v.iter().skip(n) {
+        rest += *e;
+    }
+    let mut out: std::collections::BTreeMap<String, ProcEnergy> = v.into_iter().take(n).collect();
+    if rest.total > 0.0 {
         *out.entry(OTHER.to_string()).or_default() += rest;
     }
     out
@@ -192,12 +219,13 @@ fn attribute(
     readings: &[Option<f64>],
     tracker: &mut ProcTracker,
     nvml: Option<&Nvml>,
-) -> HashMap<String, f64> {
+) -> HashMap<String, ProcEnergy> {
     let busy = tracker.scan();
     let cpu_weights: HashMap<String, f64> = busy.into_iter().map(|(k, v)| (k, v as f64)).collect();
-    let mut out: HashMap<String, f64> = HashMap::new();
+    let mut out: HashMap<String, ProcEnergy> = HashMap::new();
     for (sensor, j) in sensors.iter_mut().zip(readings) {
         let Some(j) = *j else { continue };
+        let is_gpu = sensor.info().kind == SourceKind::Gpu;
         let parts = match sensor {
             Sensor::Nvidia(gpu) => {
                 let weights = nvml
@@ -209,7 +237,10 @@ fn attribute(
             _ => procs::split(j, &HashMap::new(), GPU_UNATTRIBUTED),
         };
         for (name, j) in parts {
-            *out.entry(name).or_default() += j;
+            *out.entry(name).or_default() += ProcEnergy {
+                total: j,
+                gpu: if is_gpu { j } else { 0.0 },
+            };
         }
     }
     out
@@ -243,19 +274,23 @@ fn gpu_weights(nvml: &Nvml, gpu: &mut NvidiaGpu, tracker: &ProcTracker) -> HashM
     w
 }
 
-fn live_proc_watts(ring: &VecDeque<HashMap<String, f64>>) -> Vec<(String, f64)> {
+fn live_proc_watts(ring: &VecDeque<HashMap<String, ProcEnergy>>) -> Vec<LiveProc> {
     let secs = ring.len().max(1) as f64;
-    let mut sum: HashMap<&str, f64> = HashMap::new();
+    let mut sum: HashMap<&str, ProcEnergy> = HashMap::new();
     for second in ring {
-        for (name, j) in second {
-            *sum.entry(name).or_default() += j;
+        for (name, e) in second {
+            *sum.entry(name).or_default() += *e;
         }
     }
-    let mut v: Vec<(String, f64)> = sum
+    let mut v: Vec<LiveProc> = sum
         .into_iter()
-        .map(|(n, j)| (n.to_string(), j / secs))
+        .map(|(n, e)| LiveProc {
+            name: n.to_string(),
+            total_w: e.total / secs,
+            gpu_w: e.gpu / secs,
+        })
         .collect();
-    v.sort_by(|a, b| b.1.total_cmp(&a.1));
+    v.sort_by(|a, b| b.total_w.total_cmp(&a.total_w));
     v.truncate(25);
     v
 }
@@ -290,28 +325,46 @@ fn unix_now() -> (i64, u32) {
 mod tests {
     use super::*;
 
+    fn e(total: f64, gpu: f64) -> ProcEnergy {
+        ProcEnergy { total, gpu }
+    }
+
     #[test]
     fn top_n_lumps_the_tail() {
         let procs = [("a", 5.0), ("b", 3.0), ("c", 1.0), ("d", 0.5)]
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
+            .map(|(k, v)| (k.to_string(), e(v, v / 2.0)))
             .collect();
         let out = top_n(procs, 2);
         assert_eq!(out.len(), 3);
-        assert_eq!(out[OTHER], 1.5);
-        assert_eq!(out["a"], 5.0);
+        assert_eq!(out[OTHER], e(1.5, 0.75));
+        assert_eq!(out["a"].total, 5.0);
     }
 
     #[test]
     fn live_watts_average_over_window() {
         let mut ring = VecDeque::new();
-        ring.push_back(HashMap::from([("x".to_string(), 10.0)]));
+        ring.push_back(HashMap::from([("x".to_string(), e(10.0, 10.0))]));
         ring.push_back(HashMap::from([
-            ("x".to_string(), 30.0),
-            ("y".to_string(), 2.0),
+            ("x".to_string(), e(30.0, 0.0)),
+            ("y".to_string(), e(2.0, 0.0)),
         ]));
         let w = live_proc_watts(&ring);
-        assert_eq!(w[0], ("x".to_string(), 20.0));
-        assert_eq!(w[1], ("y".to_string(), 1.0));
+        assert_eq!(
+            w[0],
+            LiveProc {
+                name: "x".into(),
+                total_w: 20.0,
+                gpu_w: 5.0
+            }
+        );
+        assert_eq!(
+            w[1],
+            LiveProc {
+                name: "y".into(),
+                total_w: 1.0,
+                gpu_w: 0.0
+            }
+        );
     }
 }

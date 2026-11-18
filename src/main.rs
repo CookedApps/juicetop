@@ -29,8 +29,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Open the dashboard (default)
+    /// Open the dashboard (default). Starts the setup on first use.
     Tui,
+    /// Run the setup again: country, tariff, electricity mix and computer
+    Setup,
     /// Open the dashboard with generated example data, to try juicetop without a collector
     Demo {
         /// Days of example history
@@ -60,6 +62,12 @@ enum Command {
         /// Do not attribute energy to processes
         #[arg(long)]
         no_procs: bool,
+        /// Do not look for local model servers (llama.cpp, vLLM, SGLang, TGI)
+        #[arg(long)]
+        no_models: bool,
+        /// Prometheus metrics URL of a model server to watch, e.g. http://127.0.0.1:8000/metrics
+        #[arg(long = "model-endpoint", value_name = "URL")]
+        model_endpoints: Vec<String>,
     },
 }
 
@@ -93,7 +101,11 @@ fn main() -> Result<()> {
         .or_else(Config::default_path)
         .context("no config directory")?;
     match cli.command.unwrap_or(Command::Tui) {
-        Command::Tui => tui::run(Config::load(&config_path)?, config_path),
+        Command::Tui => {
+            let first_run = !config_path.exists();
+            tui::run(Config::load(&config_path)?, config_path, first_run)
+        }
+        Command::Setup => tui::run(Config::load(&config_path)?, config_path, true),
         Command::Demo { days } => run_demo(&config_path, days),
         Command::Summary => summary(&config_path),
         Command::Sensors => sensors_cmd(),
@@ -107,6 +119,8 @@ fn main() -> Result<()> {
             live,
             raw_retention_hours,
             no_procs,
+            no_models,
+            model_endpoints,
         } => {
             let defaults = DataPaths::for_daemon();
             daemon::run(daemon::DaemonOpts {
@@ -114,6 +128,8 @@ fn main() -> Result<()> {
                 live: live.unwrap_or(defaults.live),
                 raw_retention_hours,
                 procs: !no_procs,
+                models: !no_models,
+                model_endpoints,
             })
         }
     }
@@ -144,7 +160,7 @@ fn run_demo(config_path: &Path, days: i64) -> Result<()> {
         let cfg = cfg.clone();
         std::thread::spawn(move || demo::simulate(&cfg, stop))
     };
-    let result = tui::run(cfg, dir.join("config.toml"));
+    let result = tui::run(cfg, dir.join("config.toml"), false);
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = sim.join();
     let _ = std::fs::remove_dir_all(&dir);
@@ -181,12 +197,12 @@ fn summary(config_path: &Path) -> Result<()> {
         paths.db.display(),
         fast.price_desc
     )?;
-    match fast.now_wall_w {
-        Some(w) => writeln!(
+    match &fast.live {
+        Some(n) => writeln!(
             out,
             "now       {} at the wall, {} per hour",
-            fmt_watts(w),
-            fmt_money(fast.cost_per_hour.unwrap_or(0.0), cur)
+            fmt_watts(n.wall),
+            fmt_money(n.cost_per_hour, cur)
         )?,
         None => writeln!(out, "now       collector not running")?,
     }
@@ -195,7 +211,8 @@ fn summary(config_path: &Path) -> Result<()> {
         "\n{:<22}{:>12}{:>12}{:>12}{:>10}",
         "", "energy", "cost", "CO2", "avg"
     )?;
-    for (name, t) in &slow.periods {
+    for card in &slow.cards {
+        let (name, t) = (card.label, &card.totals);
         let mark = if t.price_fallback { "*" } else { "" };
         writeln!(
             out,
@@ -207,7 +224,7 @@ fn summary(config_path: &Path) -> Result<()> {
             fmt_watts(t.avg_watts())
         )?;
     }
-    if slow.periods.iter().any(|(_, t)| t.price_fallback) {
+    if slow.cards.iter().any(|c| c.totals.price_fallback) {
         writeln!(
             out,
             "* partly priced with the fixed price because market prices were missing"

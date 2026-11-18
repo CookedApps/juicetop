@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use nvml_wrapper::Nvml;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
     Cpu,
@@ -40,6 +40,22 @@ pub enum Sensor {
 }
 
 impl Sensor {
+    /// The hwmon directory of an amdgpu sensor.
+    pub fn hwmon_dir(&self) -> Option<&Path> {
+        match self {
+            Sensor::Hwmon(h) => h.power_path.parent(),
+            _ => None,
+        }
+    }
+
+    /// The RAPL package directory, for its power limit.
+    pub fn rapl_dir(&self) -> Option<&Path> {
+        match self {
+            Sensor::Rapl(r) => r.domains.first().and_then(|d| d.energy_path.parent()),
+            _ => None,
+        }
+    }
+
     pub fn info(&self) -> &SourceInfo {
         match self {
             Sensor::Rapl(s) => &s.info,
@@ -322,11 +338,11 @@ fn cpu_label(method: &str) -> String {
     }
 }
 
-fn read_trim(path: &Path) -> Option<String> {
+pub(crate) fn read_trim(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok().map(|s| s.trim().to_string())
 }
 
-fn read_u64(path: &Path) -> Option<u64> {
+pub(crate) fn read_u64(path: &Path) -> Option<u64> {
     read_trim(path)?.parse().ok()
 }
 

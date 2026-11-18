@@ -40,6 +40,49 @@ pub struct LiveSnapshot {
     pub procs: Vec<(String, f64)>,
     /// Probe notes, e.g. "RAPL needs root".
     pub notes: Vec<String>,
+    /// Like `procs`, split into total and GPU watts. Empty from older collectors.
+    #[serde(default)]
+    pub proc_split: Vec<LiveProc>,
+    /// Utilization, temperature and limits per source.
+    #[serde(default)]
+    pub devices: Vec<DeviceStat>,
+    /// Local model servers and their token rates.
+    #[serde(default)]
+    pub models: Vec<ModelLive>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiveProc {
+    pub name: String,
+    pub total_w: f64,
+    pub gpu_w: f64,
+}
+
+/// What a device is doing right now, besides drawing power. Every field is optional because
+/// not every driver reports it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DeviceStat {
+    /// Source key, e.g. "cpu" or "nvidia:0".
+    pub key: String,
+    pub util_pct: Option<f64>,
+    pub temp_c: Option<f64>,
+    pub clock_mhz: Option<f64>,
+    pub mem_used_mb: Option<f64>,
+    pub mem_total_mb: Option<f64>,
+    pub power_limit_w: Option<f64>,
+}
+
+/// A local model server found by the collector.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ModelLive {
+    /// "host:port"
+    pub endpoint: String,
+    /// The process that serves it, as named in the process list.
+    pub process: String,
+    pub model: String,
+    /// Generated tokens per second over the last seconds.
+    pub gen_tps: f64,
+    pub prompt_tps: f64,
 }
 
 impl LiveSnapshot {
@@ -49,6 +92,25 @@ impl LiveSnapshot {
             .with_context(|| format!("writing {}", tmp.display()))?;
         std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
         Ok(())
+    }
+
+    /// (name, total watts, GPU watts) per process, from the split list when available.
+    pub fn proc_watts(&self) -> Vec<(&str, f64, f64)> {
+        if self.proc_split.is_empty() {
+            self.procs
+                .iter()
+                .map(|(n, w)| (n.as_str(), *w, 0.0))
+                .collect()
+        } else {
+            self.proc_split
+                .iter()
+                .map(|p| (p.name.as_str(), p.total_w, p.gpu_w))
+                .collect()
+        }
+    }
+
+    pub fn device(&self, key: &str) -> Option<&DeviceStat> {
+        self.devices.iter().find(|d| d.key == key)
     }
 
     pub fn read(path: &Path) -> Result<Self> {
@@ -145,6 +207,13 @@ mod tests {
             }],
             procs: vec![("llama-server".into(), 180.0)],
             notes: vec![],
+            proc_split: vec![],
+            devices: vec![DeviceStat {
+                key: "cpu".into(),
+                util_pct: Some(12.0),
+                ..Default::default()
+            }],
+            models: vec![],
         };
         snap.write(&path).unwrap();
         assert_eq!(LiveSnapshot::read(&path).unwrap(), snap);

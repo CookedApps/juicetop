@@ -10,7 +10,7 @@ use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone};
 use crate::config::Config;
 use crate::live::{DataPaths, LiveSnapshot};
 use crate::pricing::Pricer;
-use crate::store::{Bucket, Store, StoredSource};
+use crate::store::{Bucket, ProcTotal, Store, StoredSource, TokenTotal};
 
 pub const J_PER_KWH: f64 = 3_600_000.0;
 
@@ -200,7 +200,7 @@ impl Reader {
     }
 
     /// Process energy at the wall in `[from, to)`, largest first. Excludes the unflushed minute.
-    pub fn proc_totals(&self, from: i64, to: i64, cfg: &Config) -> Result<Vec<(String, f64)>> {
+    pub fn proc_totals(&self, from: i64, to: i64, cfg: &Config) -> Result<Vec<ProcTotal>> {
         let Some(store) = &self.store else {
             return Ok(Vec::new());
         };
@@ -208,8 +208,40 @@ impl Reader {
         Ok(store
             .proc_totals(from, to)?
             .into_iter()
-            .map(|(n, j)| (n, j / eff))
+            .map(|p| ProcTotal {
+                joules: p.joules / eff,
+                gpu_joules: p.gpu_joules.map(|g| g / eff),
+                ..p
+            })
             .collect())
+    }
+
+    /// Watts at the wall of one process per bucket, as (unix seconds, watts).
+    pub fn proc_series(
+        &self,
+        name: &str,
+        from: i64,
+        to: i64,
+        bucket_secs: i64,
+        cfg: &Config,
+    ) -> Result<Vec<(i64, f64)>> {
+        let Some(store) = &self.store else {
+            return Ok(Vec::new());
+        };
+        let eff = cfg.estimate.psu_efficiency_percent / 100.0;
+        let b = bucket_secs.max(60) as f64;
+        Ok(store
+            .proc_series(name, from, to, bucket_secs)?
+            .into_iter()
+            .map(|(t, j)| (t, j / eff / b))
+            .collect())
+    }
+
+    pub fn token_totals(&self, from: i64, to: i64) -> Result<Vec<TokenTotal>> {
+        match &self.store {
+            Some(store) => store.token_totals(from, to),
+            None => Ok(Vec::new()),
+        }
     }
 
     pub fn first_minute(&self) -> Option<i64> {
@@ -324,8 +356,8 @@ pub enum SlotUnit {
 
 /// Formats watts compactly: "412 W", "1.2 kW".
 pub fn fmt_watts(w: f64) -> String {
-    if w >= 10_000.0 {
-        format!("{:.1} kW", w / 1000.0)
+    if w >= 1000.0 {
+        format!("{:.2} kW", w / 1000.0)
     } else {
         format!("{:.0} W", w)
     }
@@ -341,11 +373,28 @@ pub fn fmt_kwh(kwh: f64) -> String {
     }
 }
 
+/// Money with two decimals (three below 1), the symbol before or after as is customary.
 pub fn fmt_money(v: f64, currency: &str) -> String {
-    if v.abs() < 1.0 {
-        format!("{v:.3} {currency}")
+    let n = if v.abs() < 1.0 {
+        format!("{v:.3}")
     } else {
-        format!("{v:.2} {currency}")
+        format!("{v:.2}")
+    };
+    if ["$", "£", "¥", "A$", "C$"].contains(&currency) {
+        format!("{currency}{n}")
+    } else {
+        format!("{n} {currency}")
+    }
+}
+
+/// Large counts: 950, 12.3k, 148M, 2.1B.
+pub fn fmt_count(n: f64) -> String {
+    match n {
+        n if n >= 1e9 => format!("{:.1}B", n / 1e9),
+        n if n >= 1e6 => format!("{:.1}M", n / 1e6),
+        n if n >= 1e4 => format!("{:.0}k", n / 1e3),
+        n if n >= 1e3 => format!("{:.1}k", n / 1e3),
+        n => format!("{n:.0}"),
     }
 }
 
@@ -443,6 +492,9 @@ mod tests {
     #[test]
     fn formats() {
         assert_eq!(fmt_watts(412.4), "412 W");
+        assert_eq!(fmt_watts(1284.0), "1.28 kW");
+        assert_eq!(fmt_money(4.5, "£"), "£4.50");
+        assert_eq!(fmt_count(148_000_000.0), "148.0M");
         assert_eq!(fmt_kwh(0.25), "250 Wh");
         assert_eq!(fmt_kwh(3.456), "3.46 kWh");
         assert_eq!(fmt_co2(1500.0), "1.50 kg");

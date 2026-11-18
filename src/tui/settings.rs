@@ -57,14 +57,14 @@ impl Field {
         match self {
             Field::Mode => "Tariff model",
             Field::Currency => "Currency symbol",
-            Field::Fixed => "Price per kWh (ct)",
-            Field::TouHigh => "High tariff (ct/kWh)",
-            Field::TouLow => "Low tariff (ct/kWh)",
+            Field::Fixed => "Price per kWh (cents)",
+            Field::TouHigh => "High tariff (cents/kWh)",
+            Field::TouLow => "Low tariff (cents/kWh)",
             Field::TouStart => "Low tariff starts",
             Field::TouEnd => "Low tariff ends",
             Field::TouWeekends => "Low tariff on weekends",
             Field::DynRegion => "Market region",
-            Field::DynMarkup => "Markup before VAT (ct/kWh)",
+            Field::DynMarkup => "Markup before VAT (cents/kWh)",
             Field::DynVat => "VAT (%)",
             Field::Co2 => "Grid intensity (g CO2/kWh)",
             Field::BaseWatts => "Base load w/o sensor (W)",
@@ -87,7 +87,9 @@ impl Field {
             }
             Field::DynMarkup => "Grid fees, levies, taxes and supplier margin per kWh, before VAT.",
             Field::DynVat => "Applied to exchange price plus markup.",
-            Field::Co2 => "From your supplier's fuel mix label (Stromkennzeichnung). 0 for none.",
+            Field::Co2 => {
+                "From your supplier's fuel mix disclosure on the bill or website. 0 for none."
+            }
             Field::BaseWatts => {
                 "Mainboard, RAM, drives, fans. A wall plug meter tells you the truth."
             }
