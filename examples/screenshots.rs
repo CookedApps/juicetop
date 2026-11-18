@@ -9,7 +9,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use juicetop::config::PriceMode;
-use juicetop::tui::{self, App, theme};
+use juicetop::tui::{self, App};
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Modifier};
@@ -59,25 +59,6 @@ fn main() -> anyhow::Result<()> {
     let mut app = new_app();
     key(&mut app, KeyCode::Enter);
     write(&out, "detail", &tui::render(&app, COLS, ROWS))?;
-
-    let mut app = new_app();
-    app.start_setup();
-    key(&mut app, KeyCode::Enter);
-    key(&mut app, KeyCode::Right);
-    key(&mut app, KeyCode::Right);
-    write(&out, "setup", &tui::render(&app, COLS, ROWS))?;
-
-    let app = new_app();
-    write_themes(
-        &out,
-        &app,
-        &[
-            "juicetop-muted",
-            "greyscale",
-            "catppuccin-mocha",
-            "solarized-light",
-        ],
-    )?;
 
     println!("wrote {}", out.display());
     Ok(())
@@ -244,37 +225,4 @@ fn write(dir: &std::path::Path, name: &str, buf: &Buffer) -> anyhow::Result<()> 
         h + 96,
         1,
     )
-}
-
-/// Four themes side by side.
-fn write_themes(dir: &std::path::Path, app: &App, themes: &[&str]) -> anyhow::Result<()> {
-    let mut body = String::new();
-    let mut size = (0, 0);
-    for name in themes {
-        theme::set(name);
-        let buf = tui::render(app, 104, 32);
-        size = win_size(&buf);
-        let t = theme::t();
-        let bg = tone_hex(t.popup_bg, "#1a1b26");
-        let fg = tone_hex(t.dim, "#737aa2");
-        body.push_str(&window(&buf, t.label, &bg, &fg));
-    }
-    theme::set("juicetop");
-    let cols = 2;
-    let rows = themes.len().div_ceil(2) as u32;
-    page(
-        dir,
-        "themes",
-        &body,
-        size.0 * cols + 40 + 96,
-        size.1 * rows + 40 * (rows - 1) + 96,
-        cols,
-    )
-}
-
-fn tone_hex(t: theme::Tone, fallback: &str) -> String {
-    match t {
-        theme::Tone::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
-        theme::Tone::Ansi(_) => fallback.to_string(),
-    }
 }
