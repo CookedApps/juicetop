@@ -6,6 +6,13 @@ This file lists notable changes. The format follows
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-18
+
+### Fixed
+
+- macOS: CPU and GPU read 0 W at times, because `powermetrics` output arrives late and in
+  bursts. juicetop now uses the power of the newest sample for every second.
+
 ## [0.2.2] - 2026-11-18
 
 ### Fixed
