@@ -12,5 +12,6 @@ pub mod pricing;
 pub mod procs;
 pub mod report;
 pub mod sensors;
+pub mod service;
 pub mod store;
 pub mod tui;

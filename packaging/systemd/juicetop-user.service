@@ -1,0 +1,15 @@
+# Per-user collector, no root needed. Without root there are no RAPL counters, so the CPU is
+# only measured on AMD APUs (socket power via amdgpu). NVIDIA and AMD GPUs work as usual.
+# Installed by `juicetop service install --user`, which also fills in the binary path.
+[Unit]
+Description=juicetop power collector (user)
+Documentation=https://github.com/CookedApps/juicetop
+
+[Service]
+ExecStart=%h/.cargo/bin/juicetop daemon
+Restart=on-failure
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=default.target
