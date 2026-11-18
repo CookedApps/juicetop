@@ -1,5 +1,5 @@
-//! juicetop: measure, store and price the power draw of a computer (Linux; macOS and Windows
-//! untested).
+//! juicetop: measure, store and price the power draw of a computer on Linux, macOS and Windows
+//! (Windows untested).
 //!
 //! The binary is a thin CLI over these modules. See `AGENTS.md` for a map of the code.
 

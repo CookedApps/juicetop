@@ -23,7 +23,7 @@ This file lists notable changes. The format follows
   colored by price on variable tariffs.
 - Totals with a trend against the previous day, week and month.
 - Stacked power graph by device (`g`), mouse support, true color with a 256-color fallback.
-- macOS and Windows support, untested on real machines. macOS reads CPU, GPU and Neural Engine
+- macOS and Windows support (Windows untested on real machines). macOS reads CPU, GPU and Neural Engine
   energy from `powermetrics` and runs the collector as a launchd daemon. Windows reads the CPU
   from the Energy Meter counters and NVIDIA GPUs through NVML, and runs the collector from Task
   Scheduler. `install.sh` handles macOS; `install.ps1` installs on Windows. Releases include

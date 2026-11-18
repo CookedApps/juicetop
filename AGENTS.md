@@ -1,6 +1,6 @@
 # juicetop: notes for coding agents
 
-A power monitor in Rust for Linux, with untested ports to macOS and Windows. A collector daemon records CPU and GPU energy into SQLite; a ratatui
+A power monitor in Rust for Linux, macOS and Windows (Windows untested). A collector daemon records CPU and GPU energy into SQLite; a ratatui
 dashboard turns it into watts, kWh, money and CO2. `README.md` has the user view.
 
 ## Map
@@ -55,8 +55,8 @@ dashboard turns it into watts, kWh, money and CO2. `README.md` has the user view
 
 ## Platforms
 
-Linux is the tested platform. macOS and Windows code sits behind `#[cfg]` and is untested on real
-machines; CI builds it and runs the tests on both. Keep Linux-only readers (sysfs, `/proc`)
+Linux and macOS are the tested platforms. Windows code sits behind `#[cfg]` and is untested on
+real machines. CI builds and tests on macOS and Windows. Keep Linux-only readers (sysfs, `/proc`)
 compiling everywhere when they only read files, so their tests run on every OS. To check the other
 targets locally without their C toolchains:
 

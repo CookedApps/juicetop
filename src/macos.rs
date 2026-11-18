@@ -1,6 +1,6 @@
 //! macOS: CPU, GPU and Neural Engine energy from `powermetrics`.
 //!
-//! Untested on real hardware. `powermetrics` ships with macOS and needs root, so the system
+//! `powermetrics` ships with macOS and needs root, so the system
 //! service (a launchd daemon) gets these readings and a user service does not. It runs as a child
 //! process that prints one plist per second; the energy fields (`cpu_energy`, `gpu_energy`,
 //! `ane_energy`, in millijoules per sample) are summed until the collector reads them. Apple

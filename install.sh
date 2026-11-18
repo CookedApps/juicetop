@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Installs juicetop and starts the background collector. Linux and macOS (macOS is untested).
+# Installs juicetop and starts the background collector on Linux and macOS.
 # On Windows use install.ps1. Run it again to update; it keeps your settings, data and the kind
 # of collector you chose.
 #

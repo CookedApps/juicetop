@@ -1,6 +1,6 @@
 //! `juicetop service install | uninstall | status`: runs the collector in the background with the
 //! system's own service manager: systemd on Linux, launchd on macOS, Task Scheduler on Windows.
-//! The macOS and Windows variants are untested.
+//! The Windows variant is untested.
 
 use std::path::Path;
 

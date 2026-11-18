@@ -1,4 +1,4 @@
-//! macOS: the collector as a launchd daemon. Untested.
+//! macOS: the collector as a launchd daemon.
 //!
 //! macOS gives CPU and GPU energy only to root (through `powermetrics`), so there is no user
 //! service: a per-user agent would have no sensor to read.

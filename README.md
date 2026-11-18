@@ -9,7 +9,7 @@
   <a href="https://github.com/CookedApps/juicetop/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/CookedApps/juicetop/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/CookedApps/juicetop/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/CookedApps/juicetop"></a>
   <a href="#license"><img alt="License: MIT or Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue"></a>
-  <img alt="Platform: Linux, macOS and Windows (untested)" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20(untested)-informational">
+  <img alt="Platform: Linux, macOS and Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-informational">
 </p>
 
 <p align="center">
@@ -37,43 +37,28 @@ tokens, and which hours tomorrow cost the least.
 
 ## Install
 
-**Linux:**
+Linux and macOS (Apple Silicon):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CookedApps/juicetop/main/install.sh | sh
 ```
 
-The script downloads the binary for x86_64 or aarch64, copies it to `/usr/local/bin` and starts
-the collector as a systemd service. It asks for sudo once.
-
-**macOS (untested):** the same command. It installs the Apple Silicon or Intel binary and starts
-the collector as a launchd daemon. Power readings need an Apple Silicon Mac; see
-[What it measures](#what-it-measures).
-
-**Windows (untested):** in PowerShell, as administrator for a collector that runs from boot or
-as yourself for one that runs from logon:
+Windows, in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/CookedApps/juicetop/main/install.ps1 | iex
 ```
 
-It puts `juicetop.exe` in `%LOCALAPPDATA%\Programs\juicetop`, adds that to your PATH and registers
-the collector with Task Scheduler.
-
-Then open the dashboard:
-
-```bash
-juicetop
-```
-
-To update, run the same install command again. It keeps your settings, your data and the kind
-of collector you picked, and restarts the collector on the new version.
-
-The first start walks you through the setup. `juicetop demo` shows the dashboard with generated
-data while yours is still coming in.
+Then run `juicetop`. The first start walks you through the setup, and `juicetop demo` shows
+generated data while yours comes in. Run the install command again to update.
 
 <details>
-<summary>Other ways to install, and how to remove it</summary>
+<summary>What the script does, other ways to install, and how to remove it</summary>
+
+**The script** downloads the binary for your system and starts the collector in the background:
+a systemd service on Linux, a launchd daemon on macOS (both ask for sudo once), a Task Scheduler
+task on Windows (from boot in an administrator terminal, from logon otherwise). An update keeps
+your settings, your data and the kind of collector you picked.
 
 **With cargo** (Rust 1.89 or newer):
 
@@ -235,7 +220,7 @@ A total marked `*` used the fixed price for hours without market data.
 | CPU package on AMD APUs (Linux, Ryzen with integrated graphics) | amdgpu socket power, when RAPL is unreadable | nothing |
 | NVIDIA GPUs (Linux, Windows) | NVML energy counter, or power readings on older cards | NVIDIA driver |
 | AMD GPUs (Linux) | amdgpu hwmon power | nothing |
-| CPU, GPU and Neural Engine (macOS, Apple Silicon; untested) | `powermetrics` energy per sample | root |
+| CPU, GPU and Neural Engine (macOS, Apple Silicon) | `powermetrics` energy per sample | root |
 | CPU package (Windows; untested) | the `Energy Meter` performance counters | Windows 11 and a CPU that reports them |
 | Mainboard, RAM, drives, fans | your estimate (default 40 W) | |
 | Power supply loss | your efficiency estimate (default 90 %) | |
@@ -287,9 +272,9 @@ NVIDIA cards without an energy counter, model server discovery and metrics parsi
 
 **Not tested yet:**
 
-- macOS and Windows as a whole. The code builds and its unit tests run on both in CI, but nobody
-  has run the collector, the services (launchd, Task Scheduler) or `install.ps1` on a real machine
-- the `powermetrics` and Windows `Energy Meter` readings, and their units
+- Windows as a whole. The code builds and its unit tests run in CI, but nobody has run the
+  collector, the Task Scheduler task or `install.ps1` on a real machine
+- the Windows `Energy Meter` readings and their unit
 - `install.sh` from start to finish
 - the aarch64 binary on real hardware, distributions outside the Ubuntu family, systems without systemd
 - energy per token against a running model server
@@ -308,7 +293,7 @@ Open features, roughly by priority. Pull requests are welcome.
 - [ ] CSV and JSON export, a Prometheus endpoint
 - [ ] Retention settings and database maintenance
 - [ ] Packages for crates.io, AUR, Debian and Nix
-- [ ] macOS and Windows: test on real machines, Intel Macs, AMD and Intel GPUs on Windows
+- [ ] Windows on real machines, Intel Macs, AMD and Intel GPUs on Windows
 
 ## Contributing
 
