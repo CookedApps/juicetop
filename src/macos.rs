@@ -2,8 +2,10 @@
 //!
 //! `powermetrics` ships with macOS and needs root, so the system
 //! service (a launchd daemon) gets these readings and a user service does not. It runs as a child
-//! process that prints one plist per second; the energy fields (`cpu_energy`, `gpu_energy`,
-//! `ane_energy`, in millijoules per sample) are summed until the collector reads them. Apple
+//! process that prints one plist per second. Each sample's energy (`cpu_energy`, `gpu_energy`,
+//! `ane_energy`, in millijoules) over its length gives the power, and each collector tick counts
+//! the newest power for its own interval. powermetrics output reaches a pipe late and in bursts,
+//! so summing the samples as they arrive would leave most seconds empty. Apple
 //! Silicon only: Intel Macs report package power under other keys and get no sensor yet.
 
 use std::io::Read;
@@ -57,8 +59,8 @@ pub fn probe(sensors: &mut Vec<Sensor>, notes: &mut Vec<String>) {
 
 #[derive(Default)]
 struct Totals {
-    cpu_mj: f64,
-    gpu_mj: f64,
+    cpu_w: Option<f64>,
+    gpu_w: Option<f64>,
     gpu_util: Option<f64>,
     gpu_mhz: Option<f64>,
     alive: bool,
@@ -113,8 +115,12 @@ impl PowerMetrics {
                             let _ = tx.send(s);
                         }
                         if let Ok(mut t) = t.lock() {
-                            t.cpu_mj += s.cpu_mj.unwrap_or(0.0);
-                            t.gpu_mj += s.gpu_mj.unwrap_or(0.0) + s.ane_mj.unwrap_or(0.0);
+                            if let Some(w) = s.cpu_watts() {
+                                t.cpu_w = Some(w);
+                            }
+                            if let Some(w) = s.gpu_watts() {
+                                t.gpu_w = Some(w);
+                            }
                             t.gpu_util = s.gpu_idle.map(|i| ((1.0 - i) * 100.0).clamp(0.0, 100.0));
                             t.gpu_mhz = s.gpu_mhz;
                         }
@@ -131,14 +137,7 @@ impl PowerMetrics {
             totals,
         };
         match first_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(s) if s.cpu_mj.is_some() => {
-                // The first sample covers the time before the collector started.
-                if let Ok(mut t) = pm.totals.lock() {
-                    t.cpu_mj = 0.0;
-                    t.gpu_mj = 0.0;
-                }
-                Ok(pm)
-            }
+            Ok(s) if s.cpu_watts().is_some() => Ok(pm),
             Ok(_) => Err("powermetrics reports no CPU energy on this Mac \
                           (Intel Macs are not supported yet)"
                 .into()),
@@ -178,18 +177,16 @@ impl PlatformSensor for AppleSensor {
         &self.info
     }
 
-    fn read(&mut self, _dt: f64) -> Option<Reading> {
-        let mut t = self.pm.totals.lock().ok()?;
+    fn read(&mut self, dt: f64) -> Option<Reading> {
+        let t = self.pm.totals.lock().ok()?;
         if !t.alive {
             return None;
         }
-        let mj = match self.part {
-            Part::Cpu => std::mem::take(&mut t.cpu_mj),
-            Part::Gpu => std::mem::take(&mut t.gpu_mj),
-        };
-        Some(Reading {
-            joules: mj / 1000.0,
-        })
+        let watts = match self.part {
+            Part::Cpu => t.cpu_w,
+            Part::Gpu => t.gpu_w,
+        }?;
+        Some(Reading { joules: watts * dt })
     }
 
     fn stat(&self) -> Option<DeviceStat> {

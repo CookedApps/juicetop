@@ -4,6 +4,8 @@
 /// One parsed `powermetrics` sample.
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Sample {
+    /// Length of the sample in nanoseconds.
+    pub elapsed_ns: Option<f64>,
     pub cpu_mj: Option<f64>,
     pub gpu_mj: Option<f64>,
     pub ane_mj: Option<f64>,
@@ -17,12 +19,30 @@ pub fn parse_sample(xml: &str) -> Sample {
     let processor = xml.find("<key>processor</key>").map(|i| &xml[i..]);
     let gpu = xml.find("<key>gpu</key>").map(|i| &xml[i..]);
     Sample {
+        elapsed_ns: value_after(xml, "elapsed_ns"),
         cpu_mj: processor.and_then(|s| value_after(s, "cpu_energy")),
         gpu_mj: processor.and_then(|s| value_after(s, "gpu_energy")),
         ane_mj: processor.and_then(|s| value_after(s, "ane_energy")),
         gpu_idle: gpu.and_then(|s| value_after(s, "idle_ratio")),
         // Despite its name this field is in MHz.
         gpu_mhz: gpu.and_then(|s| value_after(s, "freq_hz")),
+    }
+}
+
+impl Sample {
+    /// Average CPU power over the sample.
+    pub fn cpu_watts(&self) -> Option<f64> {
+        self.watts(self.cpu_mj?)
+    }
+
+    /// Average GPU plus Neural Engine power over the sample.
+    pub fn gpu_watts(&self) -> Option<f64> {
+        self.watts(self.gpu_mj? + self.ane_mj.unwrap_or(0.0))
+    }
+
+    fn watts(&self, mj: f64) -> Option<f64> {
+        let secs = self.elapsed_ns? / 1e9;
+        (secs > 0.0).then(|| mj / 1000.0 / secs)
     }
 }
 
@@ -69,6 +89,9 @@ mod tests {
     #[test]
     fn parses_a_powermetrics_plist() {
         let s = parse_sample(SAMPLE);
+        assert_eq!(s.elapsed_ns, Some(1004178750.0));
+        assert!((s.cpu_watts().unwrap() - 4.3818).abs() < 1e-3);
+        assert!((s.gpu_watts().unwrap() - 1.4938).abs() < 1e-3);
         assert_eq!(s.cpu_mj, Some(4400.0));
         assert_eq!(s.gpu_mj, Some(1500.0));
         assert_eq!(s.ane_mj, Some(0.0));
