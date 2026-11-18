@@ -3,6 +3,7 @@
 //! The binary is a thin CLI over these modules. See `AGENTS.md` for a map of the code.
 
 pub mod config;
+pub mod daemon;
 pub mod live;
 pub mod procs;
 pub mod sensors;
