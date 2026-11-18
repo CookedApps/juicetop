@@ -5,6 +5,7 @@
 pub mod awattar;
 pub mod config;
 pub mod daemon;
+pub mod dashboard;
 pub mod live;
 pub mod pricing;
 pub mod procs;
