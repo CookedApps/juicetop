@@ -10,7 +10,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use super::App;
 use super::settings::Field;
-use super::theme::{self, Rgb, bold, fg};
+use super::theme::{self, Tone, bold, fg};
 use super::widgets;
 use crate::config::{Config, PriceMode};
 use crate::dashboard::Fast;
@@ -298,7 +298,7 @@ fn curve(levels: &[u8]) -> Vec<Line<'static>> {
                     let part = l.saturating_sub(offset).min(8) as usize;
                     Span::styled(
                         PARTS[part].to_string(),
-                        fg(theme::PRICE.at(*l as f64 / 16.0)),
+                        fg(theme::t().price.at(*l as f64 / 16.0)),
                     )
                 })
                 .collect::<Vec<_>>(),
@@ -321,11 +321,11 @@ fn draw_cards(f: &mut Frame, area: Rect, cards: &[Card], selected: usize, focuse
     for (i, (c, rect)) in cards.iter().zip(cols.iter()).enumerate() {
         let sel = i == selected;
         let color = if !c.enabled {
-            theme::FAINT
+            theme::t().faint
         } else if sel {
-            theme::BRAND
+            theme::t().accent
         } else {
-            theme::DIM
+            theme::t().dim
         };
         let border = if sel && focused {
             BorderType::Thick
@@ -335,7 +335,11 @@ fn draw_cards(f: &mut Frame, area: Rect, cards: &[Card], selected: usize, focuse
         let title_style = if sel {
             bold(color)
         } else {
-            fg(if c.enabled { theme::MUTED } else { theme::DIM })
+            fg(if c.enabled {
+                theme::t().muted
+            } else {
+                theme::t().dim
+            })
         };
         let mark = if sel { "● " } else { "○ " };
         let block = Block::default()
@@ -367,21 +371,21 @@ fn field_row(ob: &Onboarding, row: usize, label: &str, unit: &str, field: Field)
         _ => field.get(&ob.draft),
     };
     let st = if selected {
-        Style::new().bg(theme::SELECT_BG.color())
+        Style::new().bg(theme::t().select_bg.color())
     } else {
         Style::new()
     };
     Line::from(vec![
         Span::styled(
             if selected { " ▶ " } else { "   " },
-            st.fg(theme::BRAND.color()),
+            st.fg(theme::t().accent.color()),
         ),
-        Span::styled(format!("{label:<28}"), st.fg(theme::TEXT.color())),
+        Span::styled(format!("{label:<28}"), st.fg(theme::t().text.color())),
         Span::styled(
             format!(" {value:>8} "),
-            st.fg(theme::MONEY.color()).add_modifier(Modifier::BOLD),
+            st.fg(theme::t().money.color()).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" {unit}"), st.fg(theme::DIM.color())),
+        Span::styled(format!(" {unit}"), st.fg(theme::t().dim.color())),
     ])
 }
 
@@ -394,15 +398,18 @@ pub fn draw(f: &mut Frame, ob: &Onboarding, _app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(fg(theme::BRAND.lerp(theme::FAINT, 0.3)))
+        .border_style(fg(theme::t().accent.lerp(theme::t().faint, 0.3)))
         .title(Line::from(vec![
             Span::raw(" "),
-            Span::styled("setup", bold(theme::BRAND)),
+            Span::styled("setup", bold(theme::t().accent)),
             Span::raw(" "),
         ]))
         .title(
-            Line::styled(format!(" step {} of {STEPS} ", ob.step + 1), fg(theme::DIM))
-                .alignment(Alignment::Right),
+            Line::styled(
+                format!(" step {} of {STEPS} ", ob.step + 1),
+                fg(theme::t().dim),
+            )
+            .alignment(Alignment::Right),
         );
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -418,9 +425,9 @@ pub fn draw(f: &mut Frame, ob: &Onboarding, _app: &App) {
     let mut prog = Vec::new();
     for (i, name) in names.iter().enumerate() {
         let (dot, c) = match i.cmp(&ob.step) {
-            std::cmp::Ordering::Less => ("●", theme::GOOD),
-            std::cmp::Ordering::Equal => ("◉", theme::BRAND),
-            std::cmp::Ordering::Greater => ("○", theme::DIM),
+            std::cmp::Ordering::Less => ("●", theme::t().good),
+            std::cmp::Ordering::Equal => ("◉", theme::t().accent),
+            std::cmp::Ordering::Greater => ("○", theme::t().dim),
         };
         prog.push(Span::styled(
             format!("{dot} {name}"),
@@ -430,9 +437,9 @@ pub fn draw(f: &mut Frame, ob: &Onboarding, _app: &App) {
             prog.push(Span::styled(
                 "  ━━━  ",
                 fg(if i < ob.step {
-                    theme::GOOD
+                    theme::t().good
                 } else {
-                    theme::FAINT
+                    theme::t().faint
                 }),
             ));
         }
@@ -459,9 +466,9 @@ pub fn draw(f: &mut Frame, ob: &Onboarding, _app: &App) {
         (false, 3) => "←→ choose · ↑↓ move · type to edit · ⏎ save and start · esc back",
         _ => "←→ choose · ↑↓ move · type to edit · ⏎ continue · esc back",
     };
-    let mut footer = vec![Span::styled(hint, fg(theme::DIM))];
+    let mut footer = vec![Span::styled(hint, fg(theme::t().dim))];
     if let Some(e) = &ob.error {
-        footer = vec![Span::styled(e.clone(), fg(theme::BAD))];
+        footer = vec![Span::styled(e.clone(), fg(theme::t().bad))];
     }
     f.render_widget(
         Paragraph::new(Line::from(footer)).alignment(Alignment::Center),
@@ -475,59 +482,62 @@ pub fn draw(f: &mut Frame, ob: &Onboarding, _app: &App) {
 
 fn heading(title: &str, sub: &str) -> Vec<Line<'static>> {
     vec![
-        Line::styled(title.to_string(), bold(theme::TEXT)),
-        Line::styled(sub.to_string(), fg(theme::DIM)),
+        Line::styled(title.to_string(), bold(theme::t().text)),
+        Line::styled(sub.to_string(), fg(theme::t().dim)),
         Line::raw(""),
     ]
 }
 
 fn draw_welcome(f: &mut Frame, ob: &Onboarding, area: Rect) {
     let mut lines = vec![];
-    let mut logo = vec![Span::styled("Welcome to ", bold(theme::TEXT))];
+    let mut logo = vec![Span::styled("Welcome to ", bold(theme::t().text))];
     logo.extend(widgets::gradient_text(
         "⚡juicetop",
-        theme::BRAND_GRADIENT,
+        theme::t().logo,
         Style::new().add_modifier(Modifier::BOLD),
     ));
     lines.push(Line::from(logo));
     lines.push(Line::styled(
         "Four quick questions so the costs are yours, not an average. Every answer has a default.",
-        fg(theme::DIM),
+        fg(theme::t().dim),
     ));
     lines.push(Line::raw(""));
-    lines.push(Line::styled("Found on this machine", bold(theme::MUTED)));
+    lines.push(Line::styled(
+        "Found on this machine",
+        bold(theme::t().muted),
+    ));
     if ob.hardware.is_empty() {
         lines.push(Line::styled(
             "  ! no power sensors found; run `juicetop sensors` for details",
-            fg(theme::WARN),
+            fg(theme::t().warn),
         ));
     }
     for h in &ob.hardware {
         lines.push(Line::from(vec![
-            Span::styled("  ✓ ", fg(theme::GOOD)),
-            Span::styled(h.clone(), fg(theme::TEXT)),
+            Span::styled("  ✓ ", fg(theme::t().good)),
+            Span::styled(h.clone(), fg(theme::t().text)),
         ]));
     }
     if ob.collector {
         lines.push(Line::from(vec![
-            Span::styled("  ✓ ", fg(theme::GOOD)),
-            Span::styled("collector is running", fg(theme::TEXT)),
+            Span::styled("  ✓ ", fg(theme::t().good)),
+            Span::styled("collector is running", fg(theme::t().text)),
         ]));
     } else {
         lines.push(Line::from(vec![
-            Span::styled("  ! ", fg(theme::WARN)),
+            Span::styled("  ! ", fg(theme::t().warn)),
             Span::styled(
                 "collector is not running. Start it later with ",
-                fg(theme::TEXT),
+                fg(theme::t().text),
             ),
-            Span::styled("sudo juicetop service install", bold(theme::BRAND)),
+            Span::styled("sudo juicetop service install", bold(theme::t().accent)),
         ]));
     }
     lines.push(Line::raw(""));
-    lines.push(Line::styled("Where do you live?", bold(theme::TEXT)));
+    lines.push(Line::styled("Where do you live?", bold(theme::t().text)));
     lines.push(Line::styled(
         "Sets currency, a typical price and the grid's CO2 intensity. You can adjust them next.",
-        fg(theme::DIM),
+        fg(theme::t().dim),
     ));
     let top = lines.len() as u16;
     f.render_widget(Paragraph::new(lines), area);
@@ -550,40 +560,46 @@ fn draw_welcome(f: &mut Frame, ob: &Onboarding, area: Rect) {
         .map(|(i, c)| {
             let sel = i == ob.row;
             let st = if sel {
-                Style::new().bg(theme::SELECT_BG.color())
+                Style::new().bg(theme::t().select_bg.color())
             } else {
                 Style::new()
             };
             let mut spans = vec![
-                Span::styled(if sel { " ▶ " } else { "   " }, st.fg(theme::BRAND.color())),
+                Span::styled(
+                    if sel { " ▶ " } else { "   " },
+                    st.fg(theme::t().accent.color()),
+                ),
                 Span::styled(
                     format!("{:<18}", c.name),
                     if sel {
-                        st.fg(theme::TEXT.color()).add_modifier(Modifier::BOLD)
+                        st.fg(theme::t().text.color()).add_modifier(Modifier::BOLD)
                     } else {
-                        st.fg(theme::MUTED.color())
+                        st.fg(theme::t().muted.color())
                     },
                 ),
             ];
             if c.code != "XX" {
                 spans.push(Span::styled(
                     format!("{:>4}  ", c.currency),
-                    st.fg(theme::DIM.color()),
+                    st.fg(theme::t().dim.color()),
                 ));
                 spans.push(Span::styled(
                     format!("{:>5.0} {}/kWh  ", c.price, c.minor),
-                    st.fg(theme::MONEY.color()),
+                    st.fg(theme::t().money.color()),
                 ));
                 spans.push(Span::styled(
                     format!("{:>4.0} g CO2/kWh", c.co2_g),
-                    st.fg(theme::CO2.color()),
+                    st.fg(theme::t().co2.color()),
                 ));
                 if c.market.is_some() {
-                    spans.push(Span::styled("  dynamic tariffs", st.fg(theme::AI.color())));
+                    spans.push(Span::styled(
+                        "  dynamic tariffs",
+                        st.fg(theme::t().text.color()),
+                    ));
                 }
             }
             if i == ob.detected {
-                spans.push(Span::styled("  detected", st.fg(theme::GOOD.color())));
+                spans.push(Span::styled("  detected", st.fg(theme::t().good.color())));
             }
             Line::from(spans)
         })
@@ -609,7 +625,7 @@ fn draw_tariff(f: &mut Frame, ob: &Onboarding, area: Rect) {
             title: "Fixed price".into(),
             lines: [
                 curve(&[7; 24]),
-                vec![Line::styled("same price all day", fg(theme::MUTED))],
+                vec![Line::styled("same price all day", fg(theme::t().muted))],
             ]
             .concat(),
             enabled: true,
@@ -621,7 +637,10 @@ fn draw_tariff(f: &mut Frame, ob: &Onboarding, area: Rect) {
                     4, 4, 4, 4, 4, 4, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
                     11, 4, 4,
                 ]),
-                vec![Line::styled("cheaper at night (HT/NT)", fg(theme::MUTED))],
+                vec![Line::styled(
+                    "cheaper at night (HT/NT)",
+                    fg(theme::t().muted),
+                )],
             ]
             .concat(),
             enabled: true,
@@ -638,7 +657,7 @@ fn draw_tariff(f: &mut Frame, ob: &Onboarding, area: Rect) {
                     } else {
                         format!("not available in {}", c.name)
                     },
-                    fg(theme::MUTED),
+                    fg(theme::t().muted),
                 )],
             ]
             .concat(),
@@ -673,7 +692,7 @@ fn draw_tariff(f: &mut Frame, ob: &Onboarding, area: Rect) {
         PriceMode::TimeOfUse => "Two prices and the hours of the cheaper one, as on a dual-rate meter.".to_string(),
         PriceMode::Dynamic => "The exchange price comes from aWATTar every hour; add what your supplier charges on top.".to_string(),
     };
-    rows.push(Line::styled(hint, fg(theme::DIM)));
+    rows.push(Line::styled(hint, fg(theme::t().dim)));
     f.render_widget(
         Paragraph::new(rows),
         Rect {
@@ -685,10 +704,10 @@ fn draw_tariff(f: &mut Frame, ob: &Onboarding, area: Rect) {
 }
 
 fn co2_gauge(g: f64, width: usize) -> Vec<Span<'static>> {
-    let mut v = widgets::meter(g / 700.0, width, theme::PRICE);
+    let mut v = widgets::meter(g / 700.0, width, theme::t().price);
     v.push(Span::styled(
         format!("  {g:.0} g CO2 per kWh"),
-        bold(theme::CO2),
+        bold(theme::t().co2),
     ));
     v
 }
@@ -709,24 +728,24 @@ fn draw_mix(f: &mut Frame, ob: &Onboarding, area: Rect) {
         Card {
             title: "Grid average".into(),
             lines: vec![
-                Line::styled(format!("{:.0} g CO2/kWh", c.co2_g), bold(theme::CO2)),
-                Line::styled(format!("typical for {}", c.name), fg(theme::MUTED)),
+                Line::styled(format!("{:.0} g CO2/kWh", c.co2_g), bold(theme::t().co2)),
+                Line::styled(format!("typical for {}", c.name), fg(theme::t().muted)),
             ],
             enabled: true,
         },
         Card {
             title: "Green tariff".into(),
             lines: vec![
-                Line::styled(format!("≈ {GREEN_G:.0} g CO2/kWh"), bold(theme::CO2)),
-                Line::styled("renewable electricity", fg(theme::MUTED)),
+                Line::styled(format!("≈ {GREEN_G:.0} g CO2/kWh"), bold(theme::t().co2)),
+                Line::styled("renewable electricity", fg(theme::t().muted)),
             ],
             enabled: true,
         },
         Card {
             title: "Custom".into(),
             lines: vec![
-                Line::styled("your supplier's value", bold(theme::CO2)),
-                Line::styled("from the fuel mix label", fg(theme::MUTED)),
+                Line::styled("your supplier's value", bold(theme::t().co2)),
+                Line::styled("from the fuel mix label", fg(theme::t().muted)),
             ],
             enabled: true,
         },
@@ -771,9 +790,9 @@ fn draw_computer(f: &mut Frame, ob: &Onboarding, area: Rect) {
                     } else {
                         format!("{:.0} W", ob.draft.estimate.base_watts)
                     },
-                    bold(theme::ESTIMATE),
+                    bold(theme::t().estimate),
                 ),
-                Line::styled((*desc).to_string(), fg(theme::MUTED)),
+                Line::styled((*desc).to_string(), fg(theme::t().muted)),
             ],
             enabled: true,
         })
@@ -782,25 +801,25 @@ fn draw_computer(f: &mut Frame, ob: &Onboarding, area: Rect) {
 
     let psu_sel = ob.row == 1;
     let st = if psu_sel {
-        Style::new().bg(theme::SELECT_BG.color())
+        Style::new().bg(theme::t().select_bg.color())
     } else {
         Style::new()
     };
     let mut psu = vec![
         Span::styled(
             if psu_sel { " ▶ " } else { "   " },
-            st.fg(theme::BRAND.color()),
+            st.fg(theme::t().accent.color()),
         ),
         Span::styled(
             format!("{:<28}", "Power supply rating"),
-            st.fg(theme::TEXT.color()),
+            st.fg(theme::t().text.color()),
         ),
     ];
     for (i, (name, eff)) in PSUS.iter().enumerate() {
         let s = if i == ob.psu {
-            st.fg(theme::MONEY.color()).add_modifier(Modifier::BOLD)
+            st.fg(theme::t().money.color()).add_modifier(Modifier::BOLD)
         } else {
-            st.fg(theme::DIM.color())
+            st.fg(theme::t().dim.color())
         };
         psu.push(Span::styled(
             if i == ob.psu {
@@ -844,23 +863,23 @@ fn draw_computer(f: &mut Frame, ob: &Onboarding, area: Rect) {
             d.price.dynamic.vat_percent
         ),
     };
-    rows.push(Line::styled("Your setup", bold(theme::MUTED)));
-    let item = |k: &str, v: String, col: Rgb| {
+    rows.push(Line::styled("Your setup", bold(theme::t().muted)));
+    let item = |k: &str, v: String, col: Tone| {
         Line::from(vec![
-            Span::styled(format!("  {k:<14}"), fg(theme::DIM)),
+            Span::styled(format!("  {k:<14}"), fg(theme::t().dim)),
             Span::styled(v, fg(col)),
         ])
     };
     rows.push(item(
         "Country",
         format!("{} ({})", c.name, d.currency),
-        theme::TEXT,
+        theme::t().text,
     ));
-    rows.push(item("Price", price, theme::MONEY));
+    rows.push(item("Price", price, theme::t().money));
     rows.push(item(
         "CO2",
         format!("{:.0} g per kWh", d.co2.g_per_kwh),
-        theme::CO2,
+        theme::t().co2,
     ));
     rows.push(item(
         "Estimates",
@@ -868,7 +887,7 @@ fn draw_computer(f: &mut Frame, ob: &Onboarding, area: Rect) {
             "{:.0} W base load, {:.0}% efficient power supply",
             d.estimate.base_watts, d.estimate.psu_efficiency_percent
         ),
-        theme::ESTIMATE,
+        theme::t().estimate,
     ));
     if let Some(w) = ob.live_w {
         let ct = match d.price.mode {
@@ -881,13 +900,13 @@ fn draw_computer(f: &mut Frame, ob: &Onboarding, area: Rect) {
         let day = w * 24.0 / 1000.0 * ct / 100.0;
         rows.push(Line::raw(""));
         rows.push(Line::from(vec![
-            Span::styled("  At the current draw of ", fg(theme::DIM)),
-            Span::styled(fmt_watts(w), bold(theme::TEXT)),
-            Span::styled(" this machine costs about ", fg(theme::DIM)),
-            Span::styled(fmt_money(day, &d.currency), bold(theme::MONEY)),
-            Span::styled(" a day, ", fg(theme::DIM)),
-            Span::styled(fmt_money(day * 30.44, &d.currency), bold(theme::MONEY)),
-            Span::styled(" a month.", fg(theme::DIM)),
+            Span::styled("  At the current draw of ", fg(theme::t().dim)),
+            Span::styled(fmt_watts(w), bold(theme::t().text)),
+            Span::styled(" this machine costs about ", fg(theme::t().dim)),
+            Span::styled(fmt_money(day, &d.currency), bold(theme::t().money)),
+            Span::styled(" a day, ", fg(theme::t().dim)),
+            Span::styled(fmt_money(day * 30.44, &d.currency), bold(theme::t().money)),
+            Span::styled(" a month.", fg(theme::t().dim)),
         ]));
     }
     f.render_widget(

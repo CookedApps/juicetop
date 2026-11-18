@@ -2,7 +2,7 @@
 
 mod onboarding;
 mod settings;
-mod theme;
+pub mod theme;
 mod ui;
 mod widgets;
 
@@ -150,6 +150,7 @@ pub fn render(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
 
 impl App {
     pub fn new(cfg: Config, config_path: PathBuf) -> Self {
+        theme::set(&cfg.theme);
         let reader = Reader::new(DataPaths::for_reader(&cfg));
         let market = (cfg.price.mode == PriceMode::Dynamic)
             .then(|| awattar::load_cache(&cfg.price.dynamic.region));
@@ -589,6 +590,7 @@ impl App {
             return;
         };
         self.cfg = std::mem::take(&mut self.cfg).sanitized();
+        self.cfg.theme = theme::set(&self.cfg.theme).to_string();
         if self.cfg != form.original {
             match self.cfg.save(&self.config_path) {
                 Ok(()) => self.flash(format!("saved {}", self.config_path.display())),
@@ -716,8 +718,9 @@ mod tests {
         let old_price = app.cfg.price.fixed_ct_per_kwh;
         app.on_key(key(KeyCode::Char('s')));
         assert!(screen(&app, 120, 40).contains("Tariff model"));
-        app.on_key(key(KeyCode::Down));
-        app.on_key(key(KeyCode::Down)); // fixed price
+        for _ in 0..3 {
+            app.on_key(key(KeyCode::Down)); // past theme, tariff, currency to the fixed price
+        }
         app.on_key(key(KeyCode::Enter));
         for _ in 0..5 {
             app.on_key(key(KeyCode::Backspace));
@@ -734,6 +737,26 @@ mod tests {
         assert!(app.settings.is_none());
         let saved = Config::load(&tmp.path().join("config.toml")).unwrap();
         assert_eq!(saved.price.fixed_ct_per_kwh, 70.0);
+    }
+
+    #[test]
+    fn every_theme_renders_and_settings_switch_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut app = demo_app(tmp.path());
+        app.tick();
+        for th in theme::THEMES {
+            theme::set(th.name);
+            assert!(screen(&app, 140, 44).contains("processes"), "{}", th.name);
+        }
+        theme::set("juicetop");
+        app.on_key(key(KeyCode::Char('s')));
+        app.on_key(key(KeyCode::Right));
+        assert_eq!(app.cfg.theme, "juicetop-vivid");
+        assert!(screen(&app, 140, 44).contains("juicetop vivid"));
+        app.on_key(key(KeyCode::Esc));
+        let saved = Config::load(&tmp.path().join("config.toml")).unwrap();
+        assert_eq!(saved.theme, "juicetop-vivid");
+        theme::set("juicetop");
     }
 
     #[test]

@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Row, Table, Wrap};
 
 use super::settings::Field;
-use super::theme::{self, Rgb, bold, fg};
+use super::theme::{self, Tone, bold, fg};
 use super::widgets::{self, Bars, Column};
 use super::{App, Hit};
 use crate::config::PriceMode;
@@ -18,21 +18,43 @@ use crate::sensors::SourceKind;
 
 const SUPERSCRIPT: [&str; 6] = ["¹", "²", "³", "⁴", "⁵", "⁶"];
 
-pub fn source_color(s: &SourceView) -> Rgb {
+pub fn source_color(s: &SourceView) -> Tone {
     match s.kind {
-        SourceKind::Cpu => theme::CPU,
-        SourceKind::Gpu => theme::gpu(s.slot),
+        SourceKind::Cpu => theme::t().cpu,
+        SourceKind::Gpu => theme::t().gpu(s.slot),
     }
 }
 
-pub fn panel(title: &str, color: Rgb) -> Block<'static> {
+/// A panel with the theme's frame. `color` is used only by themes with colored panels.
+pub fn panel(title: &str, color: Tone) -> Block<'static> {
+    let th = theme::t();
+    let (border, title_color) = if th.colored_panels {
+        (color.lerp(th.faint, 0.35), color)
+    } else {
+        (th.border, th.title)
+    };
+    framed(title, border, title_color)
+}
+
+/// A panel whose title carries an identity color (a device).
+pub fn tinted_panel(title: &str, color: Tone) -> Block<'static> {
+    let th = theme::t();
+    let border = if th.colored_panels {
+        color.lerp(th.faint, 0.35)
+    } else {
+        th.border
+    };
+    framed(title, border, color)
+}
+
+fn framed(title: &str, border: Tone, title_color: Tone) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(fg(color.lerp(theme::FAINT, 0.35)))
+        .border_style(fg(border))
         .title(Line::from(vec![
             Span::raw(" "),
-            Span::styled(title.to_string(), bold(color)),
+            Span::styled(title.to_string(), bold(title_color)),
             Span::raw(" "),
         ]))
 }
@@ -89,30 +111,33 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let mut spans = vec![Span::raw(" ")];
     spans.extend(widgets::gradient_text(
         "⚡juicetop",
-        theme::BRAND_GRADIENT,
+        theme::t().logo,
         Style::new().bold(),
     ));
     spans.push(sep());
     match &fast.live {
         Some(now) => {
-            spans.push(Span::styled("● live", fg(theme::GOOD)));
+            spans.push(Span::styled("● live", fg(theme::t().good)));
             spans.push(sep());
             let t = now.wall / fast.peak_w.max(now.wall).max(1.0);
-            spans.push(Span::styled(fmt_watts(now.wall), bold(theme::POWER.at(t))));
+            spans.push(Span::styled(
+                fmt_watts(now.wall),
+                bold(theme::t().power.at(t)),
+            ));
             spans.push(sep());
             spans.push(Span::styled(
                 format!("{}/h", fmt_money(now.cost_per_hour, &app.cfg.currency)),
-                fg(theme::MONEY),
+                fg(theme::t().money),
             ));
         }
-        None => spans.push(Span::styled("○ collector offline", bold(theme::BAD))),
+        None => spans.push(Span::styled("○ collector offline", bold(theme::t().bad))),
     }
     if let Some(today) = app.slow.card("Today") {
         spans.push(sep());
-        spans.push(Span::styled("today ", fg(theme::DIM)));
+        spans.push(Span::styled("today ", fg(theme::t().dim)));
         spans.push(Span::styled(
             fmt_money(today.totals.cost, &app.cfg.currency),
-            fg(theme::MONEY),
+            fg(theme::t().money),
         ));
     }
     if let Some(p) = fast.price {
@@ -122,18 +147,18 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             PriceMode::TimeOfUse => "time of use",
             PriceMode::Dynamic => "dynamic",
         };
-        spans.push(Span::styled(format!("{mode} "), fg(theme::DIM)));
+        spans.push(Span::styled(format!("{mode} "), fg(theme::t().dim)));
         spans.push(Span::styled(
             format!("{:.1} {}", p.ct_per_kwh, minor(app)),
-            fg(theme::TEXT),
+            fg(theme::t().text),
         ));
         if let Some(next) = fast.price_next {
             let (arrow, c) = if next < p.ct_per_kwh - 0.05 {
-                (" ▼", theme::GOOD)
+                (" ▼", theme::t().good)
             } else if next > p.ct_per_kwh + 0.05 {
-                (" ▲", theme::BAD)
+                (" ▲", theme::t().bad)
             } else {
-                (" ▶", theme::DIM)
+                (" ▶", theme::t().dim)
             };
             spans.push(Span::styled(arrow, fg(c)));
         }
@@ -141,14 +166,14 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     spans.push(sep());
     spans.push(Span::styled(
         format!("{:.0} g CO2/kWh", app.cfg.co2.g_per_kwh),
-        fg(theme::CO2),
+        fg(theme::t().co2),
     ));
     f.render_widget(Paragraph::new(Line::from(spans)), area);
     let clock = local(fast.now).format("%H:%M:%S ").to_string();
     f.render_widget(
         Paragraph::new(clock)
             .alignment(Alignment::Right)
-            .style(fg(theme::DIM)),
+            .style(fg(theme::t().dim)),
         area,
     );
 }
@@ -175,11 +200,11 @@ fn range_tabs(app: &App, area: Rect) -> Line<'static> {
         x += w;
         let style = if *r == app.range {
             Style::new()
-                .fg(Rgb(0x16, 0x16, 0x1e).color())
-                .bg(theme::BRAND.color())
+                .fg(theme::t().on_accent.color())
+                .bg(theme::t().accent.color())
                 .bold()
         } else {
-            fg(theme::MUTED)
+            fg(theme::t().muted)
         };
         spans.push(Span::styled(format!(" {l} "), style));
     }
@@ -229,7 +254,8 @@ fn time_label(range: Range, ts: i64, now: i64) -> String {
 
 fn draw_power(f: &mut Frame, app: &App, area: Rect) {
     let mode = if app.stacked { "stacked" } else { "total" };
-    let block = panel(&format!("power · {mode}"), theme::BORDER_POWER).title(range_tabs(app, area));
+    let block =
+        panel(&format!("power · {mode}"), theme::t().panel_power).title(range_tabs(app, area));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if inner.height < 3 || inner.width < 20 {
@@ -268,8 +294,8 @@ fn draw_graph(buf: &mut Buffer, app: &App, area: Rect) {
         } else {
             fmt_axis_w(max * frac)
         };
-        buf.set_string(area.x, row, format!("{label:>5}"), fg(theme::DIM));
-        buf.set_string(area.x + 5, row, "┤", fg(theme::FAINT));
+        buf.set_string(area.x, row, format!("{label:>5}"), fg(theme::t().dim));
+        buf.set_string(area.x + 5, row, "┤", fg(theme::t().faint));
     }
     let span = app.range.secs() as f64;
     let ticks = (plot.width / 18).clamp(2, 8);
@@ -287,13 +313,13 @@ fn draw_graph(buf: &mut Buffer, app: &App, area: Rect) {
             .saturating_sub(len / 2)
             .max(plot.x)
             .min(plot.right().saturating_sub(len));
-        buf.set_string(lx, plot.bottom(), label, fg(theme::DIM));
+        buf.set_string(lx, plot.bottom(), label, fg(theme::t().dim));
     }
 
     if fast.graph.is_empty() {
         let msg = "no data in this range yet";
         let x = plot.x + plot.width.saturating_sub(msg.len() as u16) / 2;
-        buf.set_string(x, plot.y + plot.height / 2, msg, fg(theme::DIM));
+        buf.set_string(x, plot.y + plot.height / 2, msg, fg(theme::t().dim));
         return;
     }
 
@@ -306,7 +332,7 @@ fn draw_graph(buf: &mut Buffer, app: &App, area: Rect) {
     let total = pts(&|g| g.total);
     let columns: Vec<Option<Column>> = if app.stacked {
         // Bottom to top: CPU, GPUs, then base load and PSU loss.
-        let mut layers: Vec<(Vec<Option<f64>>, Rgb)> = fast
+        let mut layers: Vec<(Vec<Option<f64>>, Tone)> = fast
             .sources
             .iter()
             .map(|s| {
@@ -317,7 +343,7 @@ fn draw_graph(buf: &mut Buffer, app: &App, area: Rect) {
                 )
             })
             .collect();
-        layers.push((pts(&|g| g.base + g.psu), theme::ESTIMATE));
+        layers.push((pts(&|g| g.base + g.psu), theme::t().estimate));
         (0..n)
             .map(|i| {
                 total[i]?;
@@ -335,13 +361,13 @@ fn draw_graph(buf: &mut Buffer, app: &App, area: Rect) {
     } else {
         total.iter().map(|v| v.map(Column::single)).collect()
     };
-    widgets::area(buf, plot, &columns, max, theme::POWER);
-    widgets::hline(buf, plot, fast.avg_w, max, theme::MUTED);
+    widgets::area(buf, plot, &columns, max, theme::t().power);
+    widgets::hline(buf, plot, fast.avg_w, max, theme::t().muted);
 }
 
-fn kv(label: &str, value: String, color: Rgb) -> Line<'static> {
+fn kv(label: &str, value: String, color: Tone) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!("{label:<9}"), fg(theme::DIM)),
+        Span::styled(format!("{label:<9}"), fg(theme::t().dim)),
         Span::styled(value, fg(color)),
     ])
 }
@@ -353,7 +379,7 @@ fn draw_power_info(f: &mut Frame, app: &App, area: Rect) {
     let rule = || {
         Line::styled(
             "─".repeat(area.width.saturating_sub(2) as usize),
-            fg(theme::FAINT),
+            fg(theme::t().faint),
         )
     };
     let mut lines = Vec::new();
@@ -361,27 +387,27 @@ fn draw_power_info(f: &mut Frame, app: &App, area: Rect) {
         Some(n) => {
             let t = (n.wall / fast.peak_w.max(n.wall).max(1.0)).clamp(0.0, 1.0);
             lines.push(Line::from(vec![
-                Span::styled(fmt_watts(n.wall), bold(theme::POWER.at(t))),
-                Span::styled("  at the wall", fg(theme::DIM)),
+                Span::styled(fmt_watts(n.wall), bold(theme::t().power.at(t))),
+                Span::styled("  at the wall", fg(theme::t().dim)),
             ]));
             lines.push(Line::from(vec![
-                Span::styled(fmt_money(n.cost_per_hour, cur), bold(theme::MONEY)),
-                Span::styled(" per hour", fg(theme::DIM)),
+                Span::styled(fmt_money(n.cost_per_hour, cur), bold(theme::t().money)),
+                Span::styled(" per hour", fg(theme::t().dim)),
             ]));
         }
-        None => lines.push(Line::styled("no live data", fg(theme::BAD))),
+        None => lines.push(Line::styled("no live data", fg(theme::t().bad))),
     }
     lines.push(rule());
-    lines.push(kv("peak", fmt_watts(fast.peak_w), theme::TEXT));
-    lines.push(kv("average", fmt_watts(fast.avg_w), theme::MUTED));
+    lines.push(kv("peak", fmt_watts(fast.peak_w), theme::t().text));
+    lines.push(kv("average", fmt_watts(fast.avg_w), theme::t().muted));
     if let Some(t) = totals {
-        lines.push(kv("energy", fmt_kwh(t.kwh()), theme::TEXT));
-        lines.push(kv("cost", fmt_money(t.cost, cur), theme::MONEY));
-        lines.push(kv("CO2", fmt_co2(t.co2_g), theme::CO2));
+        lines.push(kv("energy", fmt_kwh(t.kwh()), theme::t().text));
+        lines.push(kv("cost", fmt_money(t.cost, cur), theme::t().money));
+        lines.push(kv("CO2", fmt_co2(t.co2_g), theme::t().co2));
     }
     if let Some(n) = &fast.live {
         lines.push(rule());
-        let mut rows: Vec<(String, f64, Rgb)> = fast
+        let mut rows: Vec<(String, f64, Tone)> = fast
             .sources
             .iter()
             .map(|s| {
@@ -396,7 +422,7 @@ fn draw_power_info(f: &mut Frame, app: &App, area: Rect) {
                 )
             })
             .collect();
-        rows.push(("base + PSU".into(), n.base + n.psu, theme::ESTIMATE));
+        rows.push(("base + PSU".into(), n.base + n.psu, theme::t().estimate));
         for (name, w, c) in rows {
             let share = if n.wall > 0.0 { w / n.wall } else { 0.0 };
             let bar_w = 6usize;
@@ -404,10 +430,10 @@ fn draw_power_info(f: &mut Frame, app: &App, area: Rect) {
             let short: String = name.chars().take(11).collect();
             lines.push(Line::from(vec![
                 Span::styled("■ ", fg(c)),
-                Span::styled(format!("{short:<11}"), fg(theme::MUTED)),
-                Span::styled(format!("{:>7} ", fmt_watts(w)), fg(theme::TEXT)),
+                Span::styled(format!("{short:<11}"), fg(theme::t().muted)),
+                Span::styled(format!("{:>7} ", fmt_watts(w)), fg(theme::t().text)),
                 Span::styled("▬".repeat(filled), fg(c)),
-                Span::styled("▬".repeat(bar_w - filled), fg(theme::FAINT)),
+                Span::styled("▬".repeat(bar_w - filled), fg(theme::t().faint)),
             ]));
         }
     }
@@ -436,8 +462,8 @@ fn draw_device(f: &mut Frame, app: &App, s: &SourceView, area: Rect) {
         SourceKind::Cpu => "cpu".to_string(),
         SourceKind::Gpu => format!("gpu{}", s.slot),
     };
-    let block = panel(&s.name, color)
-        .title(Line::styled(format!(" {kind} "), fg(theme::DIM)).alignment(Alignment::Right));
+    let block = tinted_panel(&s.name, color)
+        .title(Line::styled(format!(" {kind} "), fg(theme::t().dim)).alignment(Alignment::Right));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if inner.height == 0 || inner.width < 16 {
@@ -466,20 +492,20 @@ fn draw_device(f: &mut Frame, app: &App, s: &SourceView, area: Rect) {
     l1.extend(widgets::meter(
         now_w.unwrap_or(0.0) / limit,
         meter_w,
-        theme::POWER,
+        theme::t().power,
     ));
-    l1.push(Span::styled(label, fg(theme::DIM)));
+    l1.push(Span::styled(label, fg(theme::t().dim)));
 
     // Line 2: utilization, clock, temperature.
     let mut l2 = Vec::new();
     if let Some(u) = stat.and_then(|d| d.util_pct) {
-        l2.push(Span::styled("    util ", fg(theme::DIM)));
+        l2.push(Span::styled("    util ", fg(theme::t().dim)));
         l2.extend(widgets::meter(
             u / 100.0,
             (w / 5).clamp(4, 12),
-            theme::POWER,
+            theme::t().power,
         ));
-        l2.push(Span::styled(format!(" {u:>3.0}%"), fg(theme::TEXT)));
+        l2.push(Span::styled(format!(" {u:>3.0}%"), fg(theme::t().text)));
     }
     if let Some(c) = stat.and_then(|d| d.clock_mhz) {
         let s = if c >= 1000.0 {
@@ -487,12 +513,12 @@ fn draw_device(f: &mut Frame, app: &App, s: &SourceView, area: Rect) {
         } else {
             format!("  {c:.0} MHz")
         };
-        l2.push(Span::styled(s, fg(theme::MUTED)));
+        l2.push(Span::styled(s, fg(theme::t().muted)));
     }
     if let Some(t) = stat.and_then(|d| d.temp_c) {
         l2.push(Span::styled(
             format!("  {t:.0}°C"),
-            fg(theme::POWER.at(((t - 35.0) / 55.0).clamp(0.0, 1.0))),
+            fg(theme::t().power.at(((t - 35.0) / 55.0).clamp(0.0, 1.0))),
         ));
     }
 
@@ -510,9 +536,9 @@ fn draw_device(f: &mut Frame, app: &App, s: &SourceView, area: Rect) {
     let spark_w = w
         .saturating_sub(mem.as_ref().map_or(0, |m| m.chars().count()) + 1)
         .max(4);
-    let mut l3 = widgets::sparkline(&history, spark_w, limit, theme::POWER);
+    let mut l3 = widgets::sparkline(&history, spark_w, limit, color.lerp(theme::t().faint, 0.3));
     if let Some(m) = mem {
-        l3.push(Span::styled(m, fg(theme::MUTED)));
+        l3.push(Span::styled(m, fg(theme::t().muted)));
     }
     f.render_widget(
         Paragraph::new(vec![Line::from(l1), Line::from(l2), Line::from(l3)]),
@@ -531,7 +557,15 @@ fn draw_middle(f: &mut Frame, app: &App, area: Rect) {
     } else {
         app.slow.models.len().min(4) as u16 + 3
     };
-    let prices_h = if app.slow.prices.is_some() { 7 } else { 0 };
+    let mut prices_h = if app.slow.prices.is_some() { 7 } else { 0 };
+    let mut models_h = models_h;
+    // Hide panels that do not fit rather than squash them; the bars need 8 rows.
+    if right.height < 8 + models_h + prices_h {
+        prices_h = 0;
+    }
+    if right.height < 8 + models_h {
+        models_h = 0;
+    }
     let [bars, models, prices] = Layout::vertical([
         Constraint::Min(6),
         Constraint::Length(models_h),
@@ -547,11 +581,22 @@ fn draw_middle(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+/// Sparkline color of a process: its device color, toned down.
+fn spark_color(p: &ProcRow) -> Tone {
+    let th = theme::t();
+    let base = if p.gpu_share.is_some_and(|g| g >= 0.5) {
+        th.gpu(0)
+    } else {
+        th.cpu
+    };
+    base.lerp(th.faint, 0.35)
+}
+
 pub fn tag(p: &ProcRow) -> Span<'static> {
     match p.gpu_share {
-        Some(g) if g >= 0.6 => Span::styled("GPU", fg(theme::gpu(0))),
-        Some(g) if g >= 0.15 => Span::styled("C+G", fg(theme::MUTED)),
-        Some(_) => Span::styled("CPU", fg(theme::CPU)),
+        Some(g) if g >= 0.6 => Span::styled("GPU", fg(theme::t().gpu(0))),
+        Some(g) if g >= 0.15 => Span::styled("C+G", fg(theme::t().muted)),
+        Some(_) => Span::styled("CPU", fg(theme::t().cpu)),
         None => Span::raw(""),
     }
 }
@@ -560,27 +605,27 @@ fn draw_procs(f: &mut Frame, app: &App, area: Rect) {
     let cur = &app.cfg.currency;
     let procs = app.sorted_procs();
     let sort = Line::from(vec![
-        Span::styled(" sort ", fg(theme::DIM)),
-        Span::styled(format!("{} ▾ ", app.proc_sort.label()), fg(theme::TEXT)),
+        Span::styled(" sort ", fg(theme::t().dim)),
+        Span::styled(format!("{} ▾ ", app.proc_sort.label()), fg(theme::t().text)),
     ])
     .alignment(Alignment::Right);
     let block = panel(
         &format!("processes · {}", app.range.label()),
-        theme::BORDER_PROCS,
+        theme::t().panel_procs,
     )
     .title(sort);
     let inner = block.inner(area);
     f.render_widget(block, area);
     if procs.is_empty() {
         let msg = "Process data appears after the collector's first full minute.";
-        f.render_widget(Paragraph::new(msg).style(fg(theme::DIM)), inner);
+        f.render_widget(Paragraph::new(msg).style(fg(theme::t().dim)), inner);
         return;
     }
     let visible = inner.height.saturating_sub(1) as usize;
     let sel = app.proc_sel.min(procs.len() - 1);
     let offset = sel.saturating_sub(visible.saturating_sub(1));
     let header = Row::new(["Process", "", "Now", "", "Avg", "Energy", "Cost", "%"])
-        .style(fg(theme::DIM).add_modifier(Modifier::BOLD));
+        .style(fg(theme::t().dim).add_modifier(Modifier::BOLD));
     // Narrow terminals drop the sparkline, then the average, to keep names readable.
     let spark_w = if inner.width >= 84 { 8usize } else { 0 };
     let avg_w: u16 = if inner.width >= 70 { 7 } else { 0 };
@@ -602,23 +647,33 @@ fn draw_procs(f: &mut Frame, app: &App, area: Rect) {
                 .get(&p.name)
                 .map(|h| h.iter().copied().collect())
                 .unwrap_or_default();
-            let base = if dim { fg(theme::DIM) } else { fg(theme::TEXT) };
+            let base = if dim {
+                fg(theme::t().dim)
+            } else {
+                fg(theme::t().text)
+            };
             let row = Row::new(vec![
                 Line::styled(p.name.clone(), base),
                 Line::from(tag(p)),
                 Line::styled(p.now_w.map(fmt_watts).unwrap_or_default(), base)
                     .alignment(Alignment::Right),
-                Line::from(widgets::sparkline(&hist, spark_w, spark_max, theme::POWER)),
-                Line::styled(fmt_watts(p.avg_w), fg(theme::MUTED)).alignment(Alignment::Right),
+                Line::from(widgets::sparkline(
+                    &hist,
+                    spark_w,
+                    spark_max,
+                    spark_color(p),
+                )),
+                Line::styled(fmt_watts(p.avg_w), fg(theme::t().muted)).alignment(Alignment::Right),
                 Line::styled(fmt_kwh(p.kwh), base).alignment(Alignment::Right),
-                Line::styled(fmt_money(p.cost, cur), fg(theme::MONEY)).alignment(Alignment::Right),
-                Line::styled(format!("{:.0}%", p.share * 100.0), fg(theme::MUTED))
+                Line::styled(fmt_money(p.cost, cur), fg(theme::t().money))
+                    .alignment(Alignment::Right),
+                Line::styled(format!("{:.0}%", p.share * 100.0), fg(theme::t().muted))
                     .alignment(Alignment::Right),
             ]);
             let y = inner.y + 1 + (i - offset) as u16;
             hit(app, Rect::new(inner.x, y, inner.width, 1), Hit::Proc(i));
             if i == sel {
-                row.style(Style::new().bg(theme::SELECT_BG.color()))
+                row.style(Style::new().bg(theme::t().select_bg.color()))
             } else {
                 row
             }
@@ -649,22 +704,22 @@ fn draw_bars(f: &mut Frame, app: &App, area: Rect) {
         BarMetric::Cost => cur.as_str(),
         BarMetric::Co2 => "g CO2",
     };
-    let mut tabs = vec![Span::styled(" u ", fg(theme::DIM))];
+    let mut tabs = vec![Span::styled(" u ", fg(theme::t().dim))];
     for (mm, label) in [
         (BarMetric::Energy, "kWh"),
         (BarMetric::Cost, cur.as_str()),
         (BarMetric::Co2, "CO2"),
     ] {
         let st = if mm == m {
-            bold(theme::BORDER_ENERGY)
+            bold(theme::t().accent)
         } else {
-            fg(theme::DIM)
+            fg(theme::t().dim)
         };
         tabs.push(Span::styled(format!("{label} "), st));
     }
     let block = panel(
         &format!("energy {} · {unit}", slow.bars_title),
-        theme::BORDER_ENERGY,
+        theme::t().panel_energy,
     )
     .title(Line::from(tabs).alignment(Alignment::Right));
     let inner = block.inner(area);
@@ -691,12 +746,12 @@ fn draw_bars(f: &mut Frame, app: &App, area: Rect) {
         _ => local(b.start).format("%B %Y").to_string(),
     };
     let mut info = vec![
-        Span::styled(format!("{when}  "), bold(theme::TEXT)),
-        Span::styled(fmt_kwh(b.kwh), fg(theme::TEXT)),
+        Span::styled(format!("{when}  "), bold(theme::t().text)),
+        Span::styled(fmt_kwh(b.kwh), fg(theme::t().text)),
         Span::styled("  ", Style::new()),
-        Span::styled(fmt_money(b.cost, cur), fg(theme::MONEY)),
+        Span::styled(fmt_money(b.cost, cur), fg(theme::t().money)),
         Span::styled("  ", Style::new()),
-        Span::styled(fmt_co2(b.co2_g), fg(theme::CO2)),
+        Span::styled(fmt_co2(b.co2_g), fg(theme::t().co2)),
     ];
     if let Some(ct) = b
         .ct_per_kwh
@@ -704,7 +759,7 @@ fn draw_bars(f: &mut Frame, app: &App, area: Rect) {
     {
         info.push(Span::styled(
             format!("  {ct:.1} {}/kWh", minor(app)),
-            fg(theme::MUTED),
+            fg(theme::t().muted),
         ));
     }
     f.render_widget(
@@ -734,8 +789,8 @@ fn draw_bars(f: &mut Frame, app: &App, area: Rect) {
             BarMetric::Co2 if v >= 1000.0 => format!("{:.1}k", v / 1000.0),
             BarMetric::Co2 => format!("{v:.0}"),
         };
-        buf.set_string(inner.x, row, format!("{label:>6}"), fg(theme::DIM));
-        buf.set_string(inner.x + 6, row, "┤", fg(theme::FAINT));
+        buf.set_string(inner.x, row, format!("{label:>6}"), fg(theme::t().dim));
+        buf.set_string(inner.x + 6, row, "┤", fg(theme::t().faint));
     }
     let n = bars.len() as u16;
     let gap = if plot.width / n >= 3 { 1 } else { 0 };
@@ -745,14 +800,14 @@ fn draw_bars(f: &mut Frame, app: &App, area: Rect) {
     let (lo, hi) = cts
         .iter()
         .fold((f64::MAX, f64::MIN), |(lo, hi), c| (lo.min(*c), hi.max(*c)));
-    let colors: Vec<Rgb> = bars
+    let colors: Vec<Tone> = bars
         .iter()
         .zip(&values)
         .map(|(b, v)| match b.ct_per_kwh {
             Some(ct) if app.cfg.price.mode != PriceMode::Fixed && hi > lo => {
-                theme::PRICE.at((ct - lo) / (hi - lo))
+                theme::t().price.at((ct - lo) / (hi - lo))
             }
-            _ => theme::POWER.at(if max > 0.0 { v / max } else { 0.0 }),
+            _ => theme::t().power.at(if max > 0.0 { v / max } else { 0.0 }),
         })
         .collect();
     Bars {
@@ -774,9 +829,9 @@ fn draw_bars(f: &mut Frame, app: &App, area: Rect) {
         );
         if (i % every == 0 || i == sel) && x + 2 <= plot.right() {
             let st = if i == sel {
-                bold(theme::BORDER_ENERGY)
+                bold(theme::t().accent)
             } else {
-                fg(theme::DIM)
+                fg(theme::t().dim)
             };
             buf.set_string(x, plot.bottom(), &bar.label, st);
         }
@@ -787,12 +842,12 @@ fn draw_models(f: &mut Frame, app: &App, area: Rect) {
     let cur = &app.cfg.currency;
     let block = panel(
         &format!("local models · energy per token · {}", app.range.label()),
-        theme::AI,
+        theme::t().panel_models,
     );
     let inner = block.inner(area);
     f.render_widget(block, area);
     let header = Row::new(["Model", "tok/s", "tokens", "Wh/1k", "per 1M"])
-        .style(fg(theme::DIM).add_modifier(Modifier::BOLD));
+        .style(fg(theme::t().dim).add_modifier(Modifier::BOLD));
     let rows: Vec<Row> = app
         .slow
         .models
@@ -805,21 +860,24 @@ fn draw_models(f: &mut Frame, app: &App, area: Rect) {
             };
             let dot = "·".to_string();
             Row::new(vec![
-                Line::styled(name, fg(theme::TEXT)),
-                Line::styled(m.now_tps.map(fmt_count).unwrap_or_default(), fg(theme::AI))
-                    .alignment(Alignment::Right),
-                Line::styled(fmt_count(m.gen_tokens as f64), fg(theme::MUTED))
+                Line::styled(name, fg(theme::t().text)),
+                Line::styled(
+                    m.now_tps.map(fmt_count).unwrap_or_default(),
+                    fg(theme::t().text),
+                )
+                .alignment(Alignment::Right),
+                Line::styled(fmt_count(m.gen_tokens as f64), fg(theme::t().muted))
                     .alignment(Alignment::Right),
                 Line::styled(
                     m.wh_per_1k
                         .map(|v| format!("{v:.2}"))
                         .unwrap_or(dot.clone()),
-                    fg(theme::TEXT),
+                    fg(theme::t().text),
                 )
                 .alignment(Alignment::Right),
                 Line::styled(
                     m.cost_per_1m.map(|v| fmt_money(v, cur)).unwrap_or(dot),
-                    fg(theme::MONEY),
+                    fg(theme::t().money),
                 )
                 .alignment(Alignment::Right),
             ])
@@ -848,7 +906,7 @@ fn draw_prices(f: &mut Frame, app: &App, area: Rect) {
     if let Some((s, e, avg)) = o.cheapest {
         right.push(Span::styled(
             format!(" cheapest {} h ", o.window_hours),
-            fg(theme::DIM),
+            fg(theme::t().dim),
         ));
         right.push(Span::styled(
             format!(
@@ -856,15 +914,15 @@ fn draw_prices(f: &mut Frame, app: &App, area: Rect) {
                 local(s).format("%a %H:%M"),
                 local(e).format("%H:%M")
             ),
-            bold(theme::GOOD),
+            bold(theme::t().good),
         ));
         right.push(Span::styled(
             format!("{avg:.1} {} ", minor(app)),
-            fg(theme::GOOD),
+            fg(theme::t().good),
         ));
     }
     let block =
-        panel(&title, theme::BORDER_PRICES).title(Line::from(right).alignment(Alignment::Right));
+        panel(&title, theme::t().panel_prices).title(Line::from(right).alignment(Alignment::Right));
     let inner = block.inner(area);
     f.render_widget(block, area);
     if inner.height < 3 || inner.width < 20 || o.slots.is_empty() {
@@ -882,12 +940,12 @@ fn draw_prices(f: &mut Frame, app: &App, area: Rect) {
         inner.height - 1,
     );
     let buf = f.buffer_mut();
-    buf.set_string(inner.x, plot.y, format!("{hi:>4.0}"), fg(theme::DIM));
+    buf.set_string(inner.x, plot.y, format!("{hi:>4.0}"), fg(theme::t().dim));
     buf.set_string(
         inner.x,
         plot.bottom() - 1,
         format!("{:>4.0}", lo.min(hi)),
-        fg(theme::DIM),
+        fg(theme::t().dim),
     );
     let width = (plot.width / values.len() as u16).max(1);
     let shown = (plot.width / width) as usize;
@@ -895,17 +953,19 @@ fn draw_prices(f: &mut Frame, app: &App, area: Rect) {
     let floor = (lo - (hi - lo) * 0.25).max(0.0);
     let vals: Vec<f64> = values.iter().skip(skip).map(|v| v - floor).collect();
     let now_hour = o.now - o.now.rem_euclid(3600);
-    let colors: Vec<Rgb> = o
+    let colors: Vec<Tone> = o
         .slots
         .iter()
         .skip(skip)
         .map(|(t, ct)| {
             let in_cheapest = o.cheapest.is_some_and(|(s, e, _)| *t >= s && *t < e);
-            let c = theme::PRICE.at(if hi > lo { (ct - lo) / (hi - lo) } else { 0.0 });
+            let c = theme::t()
+                .price
+                .at(if hi > lo { (ct - lo) / (hi - lo) } else { 0.0 });
             if *t < now_hour {
-                c.lerp(theme::FAINT, 0.6)
+                c.lerp(theme::t().faint, 0.6)
             } else if in_cheapest {
-                theme::GOOD
+                theme::t().good
             } else {
                 c
             }
@@ -924,7 +984,7 @@ fn draw_prices(f: &mut Frame, app: &App, area: Rect) {
     for (i, (t, _)) in o.slots.iter().skip(skip).enumerate() {
         let x = plot.x + i as u16 * width;
         if Some(i) == now_idx {
-            buf.set_string(x, plot.bottom(), "now", bold(theme::TEXT));
+            buf.set_string(x, plot.bottom(), "now", bold(theme::t().text));
         } else if local(*t).format("%H").to_string() == "00"
             || local(*t).format("%H").to_string() == "12"
         {
@@ -935,7 +995,7 @@ fn draw_prices(f: &mut Frame, app: &App, area: Rect) {
                     x,
                     plot.bottom(),
                     local(*t).format("%H:%M").to_string(),
-                    fg(theme::DIM),
+                    fg(theme::t().dim),
                 );
             }
         }
@@ -950,8 +1010,8 @@ fn draw_totals(f: &mut Frame, app: &App, area: Rect) {
         .first_data
         .map(|t| format!(" since {} ", local(t).format("%Y-%m-%d")))
         .unwrap_or_default();
-    let block = panel("totals", theme::BORDER_TOTALS)
-        .title(Line::styled(since, fg(theme::DIM)).alignment(Alignment::Right));
+    let block = panel("totals", theme::t().panel_totals)
+        .title(Line::styled(since, fg(theme::t().dim)).alignment(Alignment::Right));
     let inner = block.inner(area);
     f.render_widget(block, area);
     let cards = &app.slow.cards;
@@ -961,17 +1021,17 @@ fn draw_totals(f: &mut Frame, app: &App, area: Rect) {
     let cur = &app.cfg.currency;
     let n = cards.len() as u32;
     let cols = Layout::horizontal(vec![Constraint::Ratio(1, n); n as usize]).split(inner);
-    let faint = theme::FAINT.lerp(theme::DIM, 0.6);
+    let faint = theme::t().faint.lerp(theme::t().dim, 0.6);
     for (i, (c, rect)) in cards.iter().zip(cols.iter()).enumerate() {
         let projected = c.label.starts_with("Projected");
-        let mut l1 = vec![Span::styled(c.label.to_string(), fg(theme::DIM))];
+        let mut l1 = vec![Span::styled(c.label.to_string(), fg(theme::t().dim))];
         if let Some(t) = c.trend() {
             let (arrow, color) = if t > 0.02 {
-                ("▲", theme::BAD)
+                ("▲", theme::t().bad)
             } else if t < -0.02 {
-                ("▼", theme::GOOD)
+                ("▼", theme::t().good)
             } else {
-                ("▶", theme::DIM)
+                ("▶", theme::t().dim)
             };
             l1.push(Span::styled(
                 format!("  {arrow} {:.0}%", t.abs() * 100.0),
@@ -979,16 +1039,19 @@ fn draw_totals(f: &mut Frame, app: &App, area: Rect) {
             ));
         }
         let money = if projected {
-            fg(theme::MONEY).add_modifier(Modifier::ITALIC)
+            fg(theme::t().money).add_modifier(Modifier::ITALIC)
         } else {
-            bold(theme::MONEY)
+            bold(theme::t().money)
         };
         let mark = if c.totals.price_fallback { "*" } else { "" };
         let l2 = Line::from(vec![
             Span::styled(format!("{}{mark}", fmt_money(c.totals.cost, cur)), money),
-            Span::styled(format!("  {}", fmt_kwh(c.totals.kwh())), fg(theme::TEXT)),
+            Span::styled(
+                format!("  {}", fmt_kwh(c.totals.kwh())),
+                fg(theme::t().text),
+            ),
         ]);
-        let mut l3 = vec![Span::styled(fmt_co2(c.totals.co2_g), fg(theme::CO2))];
+        let mut l3 = vec![Span::styled(fmt_co2(c.totals.co2_g), fg(theme::t().co2))];
         if c.previous.is_some() {
             l3.push(Span::styled(
                 format!("  vs {}", c.previous_label),
@@ -1006,7 +1069,7 @@ fn draw_totals(f: &mut Frame, app: &App, area: Rect) {
         if i + 1 < cards.len() {
             for y in rect.y..rect.bottom() {
                 f.buffer_mut()
-                    .set_string(rect.right() - 1, y, "│", fg(theme::FAINT));
+                    .set_string(rect.right() - 1, y, "│", fg(theme::t().faint));
             }
         }
     }
@@ -1018,10 +1081,10 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 format!(" {k} "),
                 Style::new()
-                    .fg(theme::TEXT.color())
-                    .bg(theme::FAINT.color()),
+                    .fg(theme::t().text.color())
+                    .bg(theme::t().faint.color()),
             ),
-            Span::styled(format!(" {what} "), fg(theme::DIM)),
+            Span::styled(format!(" {what} "), fg(theme::t().dim)),
         ]
     };
     let mut spans = vec![];
@@ -1046,7 +1109,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         .or_else(|| app.market_status.clone())
         .or_else(|| app.fast.notes.first().cloned());
     if let Some(m) = message {
-        let p = Paragraph::new(Span::styled(format!("{m} "), fg(theme::WARN)))
+        let p = Paragraph::new(Span::styled(format!("{m} "), fg(theme::t().warn)))
             .alignment(Alignment::Right);
         f.render_widget(p, area);
     }
@@ -1054,14 +1117,14 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
 
 // ------------------------------------------------------------------ popups
 
-pub fn popup(f: &mut Frame, width: u16, height: u16, title: &str, color: Rgb) -> Rect {
+pub fn popup(f: &mut Frame, width: u16, height: u16, title: &str, color: Tone) -> Rect {
     let full = f.area();
     let area = full.centered(
         Constraint::Length(width.min(full.width)),
         Constraint::Length(height.min(full.height)),
     );
     f.render_widget(Clear, area);
-    let block = panel(title, color).style(Style::new().bg(Rgb(0x14, 0x15, 0x22).color()));
+    let block = panel(title, color).style(Style::new().bg(theme::t().popup_bg.color()));
     let inner = block.inner(area);
     f.render_widget(block, area);
     inner
@@ -1074,7 +1137,7 @@ fn draw_detail(f: &mut Frame, app: &App) {
         100,
         22,
         &format!("{} · last {}", d.name, app.range.label()),
-        theme::BORDER_PROCS,
+        theme::t().panel_procs,
     );
     let cur = &app.cfg.currency;
     let mut lines = Vec::new();
@@ -1083,16 +1146,22 @@ fn draw_detail(f: &mut Frame, app: &App) {
         if let Some(n) = p.now_w {
             l.push(Span::styled(
                 format!("now {}  ", fmt_watts(n)),
-                bold(theme::TEXT),
+                bold(theme::t().text),
             ));
         }
         l.extend([
-            Span::styled(format!("avg {}  ", fmt_watts(p.avg_w)), fg(theme::MUTED)),
-            Span::styled(format!("{}  ", fmt_kwh(p.kwh)), fg(theme::TEXT)),
-            Span::styled(format!("{}  ", fmt_money(p.cost, cur)), bold(theme::MONEY)),
+            Span::styled(
+                format!("avg {}  ", fmt_watts(p.avg_w)),
+                fg(theme::t().muted),
+            ),
+            Span::styled(format!("{}  ", fmt_kwh(p.kwh)), fg(theme::t().text)),
+            Span::styled(
+                format!("{}  ", fmt_money(p.cost, cur)),
+                bold(theme::t().money),
+            ),
             Span::styled(
                 format!("{:.0}% of all process energy", p.share * 100.0),
-                fg(theme::DIM),
+                fg(theme::t().dim),
             ),
         ]);
         lines.push(Line::from(l));
@@ -1102,7 +1171,7 @@ fn draw_detail(f: &mut Frame, app: &App) {
                 g * 100.0,
                 (1.0 - g) * 100.0
             );
-            lines.push(Line::styled(txt, fg(theme::DIM)));
+            lines.push(Line::styled(txt, fg(theme::t().dim)));
         }
     }
     f.render_widget(Paragraph::new(lines), Rect { height: 2, ..inner });
@@ -1113,7 +1182,7 @@ fn draw_detail(f: &mut Frame, app: &App) {
     };
     if d.points.is_empty() || graph.height < 3 {
         let msg = "No minute data for this process in this range yet.";
-        f.render_widget(Paragraph::new(msg).style(fg(theme::DIM)), graph);
+        f.render_widget(Paragraph::new(msg).style(fg(theme::t().dim)), graph);
         return;
     }
     let max = nice_max(d.points.iter().map(|p| p.1).fold(0.0, f64::max) * 1.08);
@@ -1139,28 +1208,28 @@ fn draw_detail(f: &mut Frame, app: &App) {
         graph.x,
         plot.y,
         format!("{:>5}", fmt_axis_w(max)),
-        fg(theme::DIM),
+        fg(theme::t().dim),
     );
     buf.set_string(
         graph.x,
         plot.bottom() - 1,
         format!("{:>5}", "0"),
-        fg(theme::DIM),
+        fg(theme::t().dim),
     );
-    widgets::area(buf, plot, &cols, max, theme::POWER);
+    widgets::area(buf, plot, &cols, max, theme::t().power);
     let start = time_label(app.range, app.fast.now - app.range.secs(), app.fast.now);
-    buf.set_string(plot.x, plot.bottom(), start, fg(theme::DIM));
+    buf.set_string(plot.x, plot.bottom(), start, fg(theme::t().dim));
     buf.set_string(
         plot.right().saturating_sub(4),
         plot.bottom(),
         "now",
-        fg(theme::DIM),
+        fg(theme::t().dim),
     );
     buf.set_string(
         inner.right().saturating_sub(13),
         inner.y,
         "Esc to close",
-        fg(theme::DIM),
+        fg(theme::t().dim),
     );
 }
 
@@ -1171,7 +1240,7 @@ fn draw_settings(f: &mut Frame, app: &App) {
         82,
         Field::ALL.len() as u16 + 16,
         "settings",
-        theme::BRAND,
+        theme::t().accent,
     );
     let mut lines: Vec<Line> = Vec::new();
     let mut last_section = "";
@@ -1180,7 +1249,7 @@ fn draw_settings(f: &mut Frame, app: &App) {
             if !lines.is_empty() {
                 lines.push(Line::raw(""));
             }
-            lines.push(Line::styled(field.section(), bold(theme::BRAND)));
+            lines.push(Line::styled(field.section(), bold(theme::t().accent)));
             last_section = field.section();
         }
         let selected = i == form.selected;
@@ -1191,24 +1260,24 @@ fn draw_settings(f: &mut Frame, app: &App) {
             _ => field.get(&app.cfg),
         };
         let base = if active {
-            fg(theme::TEXT)
+            fg(theme::t().text)
         } else {
-            fg(theme::DIM)
+            fg(theme::t().dim)
         };
         let style = if selected {
-            base.bg(theme::SELECT_BG.color()).bold()
+            base.bg(theme::t().select_bg.color()).bold()
         } else {
             base
         };
         let value_style = if active {
-            style.fg(theme::MONEY.color())
+            style.fg(theme::t().money.color())
         } else {
             style
         };
         lines.push(Line::from(vec![
             Span::styled(
                 if selected { " ▶ " } else { "   " },
-                style.fg(theme::BRAND.color()),
+                style.fg(theme::t().accent.color()),
             ),
             Span::styled(format!("{:<32}", field.label()), style),
             Span::styled(format!("{value:<26}"), value_style),
@@ -1216,21 +1285,24 @@ fn draw_settings(f: &mut Frame, app: &App) {
     }
     lines.push(Line::raw(""));
     match &form.error {
-        Some(e) => lines.push(Line::styled(format!("  {e}"), fg(theme::BAD))),
+        Some(e) => lines.push(Line::styled(format!("  {e}"), fg(theme::t().bad))),
         None => lines.push(Line::styled(
             format!("  {}", form.field().help()),
-            fg(theme::DIM),
+            fg(theme::t().dim),
         )),
     }
     let keys = "  ↑↓ select · ⏎ edit · ←→ change · S run setup again · Esc save and close";
-    lines.push(Line::styled(keys, fg(theme::FAINT.lerp(theme::DIM, 0.7))));
+    lines.push(Line::styled(
+        keys,
+        fg(theme::t().faint.lerp(theme::t().dim, 0.7)),
+    ));
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 fn draw_help(f: &mut Frame) {
-    let inner = popup(f, 84, 24, "help", theme::BRAND);
-    let h = |s: &str| Line::styled(s.to_string(), bold(theme::BRAND));
-    let t = |s: &str| Line::styled(s.to_string(), fg(theme::TEXT));
+    let inner = popup(f, 84, 24, "help", theme::t().accent);
+    let h = |s: &str| Line::styled(s.to_string(), bold(theme::t().accent));
+    let t = |s: &str| Line::styled(s.to_string(), fg(theme::t().text));
     let text = vec![
         h("What you see"),
         t("CPU and GPUs are measured (RAPL or socket power, NVML, amdgpu). Base load and"),
@@ -1249,7 +1321,7 @@ fn draw_help(f: &mut Frame) {
         t("s          settings                S   run the setup again"),
         t("q          quit"),
         Line::raw(""),
-        Line::styled("any key closes this", fg(theme::DIM)),
+        Line::styled("any key closes this", fg(theme::t().dim)),
     ];
     f.render_widget(Paragraph::new(text), inner);
 }

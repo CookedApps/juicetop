@@ -4,6 +4,7 @@ use crate::config::{Config, PriceMode, parse_hhmm};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
+    Theme,
     Mode,
     Currency,
     Fixed,
@@ -21,7 +22,8 @@ pub enum Field {
 }
 
 impl Field {
-    pub const ALL: [Field; 14] = [
+    pub const ALL: [Field; 15] = [
+        Field::Theme,
         Field::Mode,
         Field::Currency,
         Field::Fixed,
@@ -40,6 +42,7 @@ impl Field {
 
     pub fn section(self) -> &'static str {
         match self {
+            Field::Theme => "Look",
             Field::Mode | Field::Currency => "Price",
             Field::Fixed => "Fixed price",
             Field::TouHigh
@@ -55,6 +58,7 @@ impl Field {
 
     pub fn label(self) -> &'static str {
         match self {
+            Field::Theme => "Theme",
             Field::Mode => "Tariff model",
             Field::Currency => "Currency symbol",
             Field::Fixed => "Price per kWh (cents)",
@@ -74,6 +78,9 @@ impl Field {
 
     pub fn help(self) -> &'static str {
         match self {
+            Field::Theme => {
+                "←→ previews the themes. juicetop keeps the frame neutral; vivid colors every panel."
+            }
             Field::Mode => "fixed: one price. time of use: HT/NT. dynamic: hourly exchange price.",
             Field::Currency => "Shown after amounts.",
             Field::Fixed => {
@@ -114,12 +121,16 @@ impl Field {
 
     /// Fields changed with left/right or Enter instead of typing.
     pub fn is_choice(self) -> bool {
-        matches!(self, Field::Mode | Field::TouWeekends | Field::DynRegion)
+        matches!(
+            self,
+            Field::Theme | Field::Mode | Field::TouWeekends | Field::DynRegion
+        )
     }
 
     pub fn get(self, cfg: &Config) -> String {
         let p = &cfg.price;
         match self {
+            Field::Theme => super::theme::label_of(&cfg.theme).into(),
             Field::Mode => p.mode.label().into(),
             Field::Currency => cfg.currency.clone(),
             Field::Fixed => num(p.fixed_ct_per_kwh),
@@ -145,6 +156,10 @@ impl Field {
     /// Steps a choice field forward or backward.
     pub fn cycle(self, cfg: &mut Config, forward: bool) {
         match self {
+            Field::Theme => {
+                cfg.theme = super::theme::cycle(&cfg.theme, forward).to_string();
+                super::theme::set(&cfg.theme);
+            }
             Field::Mode => {
                 let all = PriceMode::ALL;
                 let i = all.iter().position(|m| *m == cfg.price.mode).unwrap_or(0);
@@ -202,7 +217,7 @@ impl Field {
             Field::Co2 => cfg.co2.g_per_kwh = number(0.0, 2000.0)?,
             Field::BaseWatts => cfg.estimate.base_watts = number(0.0, 2000.0)?,
             Field::PsuEfficiency => cfg.estimate.psu_efficiency_percent = number(50.0, 100.0)?,
-            Field::Mode | Field::TouWeekends | Field::DynRegion => {}
+            Field::Theme | Field::Mode | Field::TouWeekends | Field::DynRegion => {}
         }
         Ok(())
     }

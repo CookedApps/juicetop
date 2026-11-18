@@ -16,6 +16,8 @@ pub struct Config {
     pub country: String,
     /// Symbol printed after amounts, e.g. "€" or "$".
     pub currency: String,
+    /// Color theme of the dashboard, e.g. "juicetop", "nord" or "terminal".
+    pub theme: String,
     pub price: PriceConfig,
     pub co2: Co2Config,
     pub estimate: EstimateConfig,
@@ -112,6 +114,7 @@ impl Default for Config {
         Self {
             country: String::new(),
             currency: "€".into(),
+            theme: "juicetop".into(),
             price: PriceConfig::default(),
             co2: Co2Config::default(),
             estimate: EstimateConfig::default(),

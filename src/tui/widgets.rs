@@ -6,13 +6,13 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Span;
 
-use super::theme::{self, Gradient, Rgb};
+use super::theme::{self, Gradient, Tone};
 
 /// One graph column: stacked segments from the bottom, as (cumulative top value, color).
 /// A single segment with `None` color uses the graph's vertical gradient.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Column {
-    pub segments: Vec<(f64, Option<Rgb>)>,
+    pub segments: Vec<(f64, Option<Tone>)>,
 }
 
 impl Column {
@@ -26,7 +26,7 @@ impl Column {
         self.segments.last().map_or(0.0, |s| s.0)
     }
 
-    fn color_at(&self, v: f64) -> Option<Rgb> {
+    fn color_at(&self, v: f64) -> Option<Tone> {
         self.segments
             .iter()
             .find(|s| s.0 >= v)
@@ -65,7 +65,7 @@ pub fn area(
         let y_frac = (bottom as f64 + 2.0) / dots_h;
         for cx in 0..area.width {
             let mut bits: u32 = 0;
-            let mut color: Option<Rgb> = None;
+            let mut color: Option<Tone> = None;
             for side in 0..2 {
                 let Some(Some((n, col))) = filled.get(cx as usize * 2 + side) else {
                     continue;
@@ -118,7 +118,7 @@ pub fn resample(points: &[(f64, f64)], x0: f64, x1: f64, n: usize) -> Vec<Option
 }
 
 /// Draws a dashed horizontal marker line at `value` where the graph leaves room.
-pub fn hline(buf: &mut Buffer, area: Rect, value: f64, max: f64, color: Rgb) {
+pub fn hline(buf: &mut Buffer, area: Rect, value: f64, max: f64, color: Tone) {
     if max <= 0.0 || area.height == 0 || value <= 0.0 {
         return;
     }
@@ -137,7 +137,7 @@ pub fn hline(buf: &mut Buffer, area: Rect, value: f64, max: f64, color: Rgb) {
 /// Vertical bars with eighth-block precision.
 pub struct Bars<'a> {
     pub values: &'a [f64],
-    pub colors: &'a [Rgb],
+    pub colors: &'a [Tone],
     pub max: f64,
     pub width: u16,
     pub gap: u16,
@@ -157,9 +157,9 @@ impl Bars<'_> {
             }
             let eighths =
                 ((v / self.max).clamp(0.0, 1.0) * area.height as f64 * 8.0).round() as u16;
-            let mut color = self.colors.get(i).copied().unwrap_or(theme::TEXT);
+            let mut color = self.colors.get(i).copied().unwrap_or(theme::t().text);
             if self.highlight.is_some() && self.highlight != Some(i) {
-                color = color.lerp(theme::FAINT, 0.2);
+                color = color.lerp(theme::t().faint, 0.2);
             }
             for row in 0..area.height {
                 let from_bottom = area.height - 1 - row;
@@ -191,15 +191,15 @@ pub fn meter(frac: f64, width: usize, gradient: Gradient) -> Vec<Span<'static>> 
         let style = if i < filled {
             Style::new().fg(gradient.color(t))
         } else {
-            Style::new().fg(theme::FAINT.color())
+            Style::new().fg(theme::t().faint.color())
         };
         spans.push(Span::styled("■", style));
     }
     spans
 }
 
-/// A one-line sparkline of block characters.
-pub fn sparkline(values: &[f64], width: usize, max: f64, gradient: Gradient) -> Vec<Span<'static>> {
+/// A one-line sparkline of block characters in one color.
+pub fn sparkline(values: &[f64], width: usize, max: f64, color: Tone) -> Vec<Span<'static>> {
     const PARTS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
     // Fewer values than columns: one column per value, right aligned, so there are no gaps.
     if values.len() < width {
@@ -212,7 +212,7 @@ pub fn sparkline(values: &[f64], width: usize, max: f64, gradient: Gradient) -> 
             };
             Span::styled(
                 PARTS[((t * 7.0).round() as usize).min(7)].to_string(),
-                Style::new().fg(gradient.color(t)),
+                Style::new().fg(color.color()),
             )
         }));
         return spans;
@@ -232,7 +232,7 @@ pub fn sparkline(values: &[f64], width: usize, max: f64, gradient: Gradient) -> 
             Some(v) if max > 0.0 => {
                 let t = (v / max).clamp(0.0, 1.0);
                 let i = ((t * 7.0).round() as usize).min(7);
-                Span::styled(PARTS[i].to_string(), Style::new().fg(gradient.color(t)))
+                Span::styled(PARTS[i].to_string(), Style::new().fg(color.color()))
             }
             _ => Span::styled(" ", Style::new()),
         })
@@ -257,7 +257,7 @@ mod tests {
         let mut buf = Buffer::empty(Rect::new(0, 0, 1, 2));
         let cols = vec![Some(Column::single(50.0)), Some(Column::single(100.0))];
         let r = buf.area;
-        area(&mut buf, r, &cols, 100.0, theme::POWER);
+        area(&mut buf, r, &cols, 100.0, theme::t().power);
         // Bottom cell: both columns full. Top cell: only the right column.
         assert_eq!(buf[(0, 1)].symbol(), "⣿");
         assert_eq!(buf[(0, 0)].symbol(), "⢸");
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn meter_fills_proportionally() {
-        let m = meter(0.5, 4, theme::POWER);
+        let m = meter(0.5, 4, theme::t().power);
         assert_eq!(m.len(), 4);
         assert_ne!(m[1].style, m[2].style);
     }
