@@ -9,46 +9,24 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use juicetop::config::PriceMode;
-use juicetop::pricing::{Interval, PriceTable};
 use juicetop::tui::{self, App};
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Modifier};
 use unicode_width::UnicodeWidthStr;
 
-/// Wednesday, 2026-11-18, 16:42:10 CET: a working afternoon with the LLM server busy.
+/// Wednesday, 2026-11-18, 16:42:10 CET: a working afternoon.
 const NOW: i64 = 1_795_016_530;
-const COLS: u16 = 140;
-const ROWS: u16 = 44;
+const COLS: u16 = 156;
+const ROWS: u16 = 48;
 
 fn key(app: &mut App, c: KeyCode) {
     app.on_key(KeyEvent::new(c, KeyModifiers::NONE));
 }
 
-/// Plausible day-ahead prices: cheap at night and midday, expensive in the evening peak.
-fn market() -> PriceTable {
-    let mut t = PriceTable::default();
-    let start = NOW - NOW.rem_euclid(3600) - 125 * 86_400;
-    t.merge((0..130 * 24).map(|h| {
-        let s = start + h * 3600;
-        let hour = ((s + 3600) / 3600) % 24;
-        let eur = match hour {
-            0..=5 => 70.0,
-            6..=8 => 125.0,
-            9..=15 => 85.0,
-            16..=20 => 165.0,
-            _ => 105.0,
-        } + ((h * 37) % 23) as f64;
-        Interval {
-            start: s,
-            end: s + 3600,
-            eur_per_mwh: eur,
-        }
-    }));
-    t
-}
-
 fn main() -> anyhow::Result<()> {
+    // SAFETY: set before any other thread exists.
+    unsafe { std::env::set_var("JUICETOP_TRUECOLOR", "1") };
     let out = PathBuf::from(
         std::env::args()
             .nth(1)
@@ -60,39 +38,45 @@ fn main() -> anyhow::Result<()> {
 
     let new_app = || {
         let mut app = App::new(cfg.clone(), data.path().join("config.toml"));
+        app.cfg.price.mode = PriceMode::Dynamic;
+        app.set_market(juicetop::demo::market(NOW));
         app.set_clock(NOW);
+        app.tick();
+        app.prefill_proc_history(juicetop::demo::proc_history(NOW, 120));
         app
     };
 
-    let mut app = new_app();
-    key(&mut app, KeyCode::Char('3'));
+    let app = new_app();
     write(&out, "dashboard", &tui::render(&app, COLS, ROWS))?;
 
     let mut app = new_app();
-    key(&mut app, KeyCode::Char('5'));
-    write(&out, "month", &tui::render(&app, COLS, ROWS))?;
+    key(&mut app, KeyCode::Char('4'));
+    key(&mut app, KeyCode::Char('g'));
+    key(&mut app, KeyCode::Char('u'));
+    key(&mut app, KeyCode::Char('c'));
+    write(&out, "week", &tui::render(&app, COLS, ROWS))?;
 
     let mut app = new_app();
-    app.cfg.price.mode = PriceMode::Dynamic;
-    app.set_market(market());
-    key(&mut app, KeyCode::Char('2'));
-    key(&mut app, KeyCode::Char('s'));
-    write(&out, "settings", &tui::render(&app, COLS, ROWS))?;
+    key(&mut app, KeyCode::Enter);
+    write(&out, "detail", &tui::render(&app, COLS, ROWS))?;
+
+    let mut app = new_app();
+    app.start_setup();
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Right);
+    write(&out, "setup", &tui::render(&app, COLS, ROWS))?;
 
     println!("wrote {}", out.display());
     Ok(())
 }
 
 /// Tokyo Night inspired palette for the terminal colors the TUI uses.
-fn rgb(c: Color, fg: bool) -> &'static str {
-    match c {
-        Color::Reset => {
-            if fg {
-                "#c0caf5"
-            } else {
-                "transparent"
-            }
-        }
+fn rgb(c: Color, fg: bool) -> String {
+    let named = match c {
+        Color::Rgb(r, g, b) => return format!("#{r:02x}{g:02x}{b:02x}"),
+        Color::Reset if fg => "#c0caf5",
+        Color::Reset => "transparent",
         Color::Black => "#15161e",
         Color::Red => "#f7768e",
         Color::Green => "#9ece6a",
@@ -108,9 +92,9 @@ fn rgb(c: Color, fg: bool) -> &'static str {
         Color::LightBlue => "#8db0ff",
         Color::LightMagenta => "#c7a9ff",
         Color::LightCyan => "#b4f9f8",
-        Color::White => "#c0caf5",
         _ => "#c0caf5",
-    }
+    };
+    named.to_string()
 }
 
 /// Braille cells drawn as dots, so the graphs look as dense as in a real terminal.
@@ -120,7 +104,7 @@ fn braille(sym: &str, color: &str) -> Option<String> {
         return None;
     }
     let bits = c - 0x2800;
-    // Unicode braille bit order: dots 1,2,3 left column, 4,5,6 right, 7 and 8 the bottom row.
+    // Unicode braille bit order: dots 1, 2, 3 left column, 4, 5, 6 right, 7 and 8 the bottom row.
     let dots = [
         (0, 0),
         (0, 1),
@@ -134,12 +118,8 @@ fn braille(sym: &str, color: &str) -> Option<String> {
     let mut svg = String::from("<svg width='8.4' height='17' style='display:block'>");
     for (i, (col, row)) in dots.iter().enumerate() {
         if bits & (1 << i) != 0 {
-            let _ = write!(
-                svg,
-                "<circle cx='{}' cy='{}' r='1.35' fill='{color}'/>",
-                2.3 + *col as f64 * 3.8,
-                2.3 + *row as f64 * 4.15
-            );
+            let (x, y) = (2.3 + *col as f64 * 3.8, 2.3 + *row as f64 * 4.15);
+            let _ = write!(svg, "<circle cx='{x}' cy='{y}' r='1.35' fill='{color}'/>");
         }
     }
     svg.push_str("</svg>");
@@ -175,7 +155,7 @@ fn write(dir: &std::path::Path, name: &str, buf: &Buffer) -> anyhow::Result<()> 
             if w == 2 {
                 style.push_str("width:1.2em;");
             }
-            let text = match braille(sym, rgb(cell.fg, true)) {
+            let text = match braille(sym, &rgb(cell.fg, true)) {
                 Some(svg) => svg,
                 None if sym.trim().is_empty() => "&nbsp;".to_string(),
                 None => escape(sym),

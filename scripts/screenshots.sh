@@ -6,6 +6,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 out=target/screenshots
+rm -rf "$out"
 cargo run --quiet --release --example screenshots -- "$out"
 
 chrome="${CHROME:-}"
