@@ -411,9 +411,11 @@ mod tests {
 
     #[test]
     fn rapl_probe_reads_fake_powercap_tree() {
+        // The kernel names these `intel-rapl:0`; Windows forbids ':' in file names, and the
+        // probe goes by the `name` file anyway.
         let tmp = tempfile::tempdir().unwrap();
-        let pkg = tmp.path().join("intel-rapl:0");
-        let core = tmp.path().join("intel-rapl:0:0");
+        let pkg = tmp.path().join("intel-rapl_0");
+        let core = tmp.path().join("intel-rapl_0_0");
         fs::create_dir_all(&pkg).unwrap();
         fs::create_dir_all(&core).unwrap();
         fs::write(pkg.join("name"), "package-0\n").unwrap();
