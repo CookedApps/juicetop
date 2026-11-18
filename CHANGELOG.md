@@ -6,6 +6,8 @@ This file lists notable changes. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
 ### Added
 
 - Setup on first start in four steps: country, tariff, electricity mix, computer. Country presets
@@ -37,6 +39,7 @@ This file lists notable changes. The format follows
 - Process names drop the interpreter: `train.py`, `vllm`, `ComfyUI/main.py`.
 - The system service may reach localhost (model servers) and nothing else.
 - Money shows the symbol before the amount for $, £ and ¥.
+- Running the install script again updates juicetop and keeps the collector you chose.
 
 ## [0.1.0]
 
