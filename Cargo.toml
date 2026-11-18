@@ -1,6 +1,6 @@
 [package]
 name = "juicetop"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.89"
 description = "A btop-style terminal dashboard for your computer's power draw, electricity cost and CO2, with history"

@@ -6,6 +6,12 @@ This file lists notable changes. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-18
+
+### Fixed
+
+- Release builds for macOS, which 0.2.0 did not publish.
+
 ## [0.2.0] - 2026-11-18
 
 ### Added
