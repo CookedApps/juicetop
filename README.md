@@ -161,8 +161,11 @@ Idle time with the model loaded counts, because serving costs it.
 | vLLM | `vllm:generation_tokens_total` | |
 | SGLang | `sglang:generation_tokens_total` | `--enable-metrics` |
 | Text Generation Inference | `tgi_request_generated_tokens_sum` | |
+| Strata | `vllm:generation_tokens_total` | |
 
-Discovery checks processes with these names and talks to them on 127.0.0.1. Ollama has no token
+Discovery checks processes with these names and talks to them on 127.0.0.1, on the server's own
+port. Servers behind a proxy such as llama-swap work the same way. The energy of a server counts
+its child processes, where some servers run the model. Ollama has no token
 counters yet, so juicetop cannot see it. For a server with another name, pass its metrics URL:
 
 ```bash

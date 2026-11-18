@@ -26,6 +26,7 @@ const SERVER_NAMES: &[&str] = &[
     "koboldcpp",
     "tabby",
     "local-ai",
+    "strata",
 ];
 
 /// (prompt counter, generated counter) per server family.
@@ -58,37 +59,37 @@ pub struct Counters {
 /// Parses Prometheus text format and sums the known token counters over all label sets.
 /// Returns `None` when the page has none of them. Also returns a `model_name` label if present.
 pub fn parse_metrics(text: &str) -> Option<(Counters, Option<String>)> {
-    let mut found = false;
-    let mut c = Counters::default();
+    // Some servers publish several families for the same tokens (Strata exports both the vLLM
+    // and the llama.cpp names), so read one family: the first in `COUNTERS` that is present.
+    let mut families: Vec<Option<Counters>> = vec![None; COUNTERS.len()];
     let mut model = None;
     for line in text.lines() {
         if line.starts_with('#') || line.trim().is_empty() {
             continue;
         }
-        let (name_labels, value) = match line.rsplit_once(' ') {
-            Some(x) => x,
-            None => continue,
+        let Some((name_labels, value)) = line.rsplit_once(' ') else {
+            continue;
         };
         let name = name_labels.split('{').next().unwrap_or(name_labels);
         let Ok(v) = value.trim().parse::<f64>() else {
             continue;
         };
-        for (p, g) in COUNTERS {
+        for (i, (p, g)) in COUNTERS.iter().enumerate() {
+            if name != *p && name != *g {
+                continue;
+            }
+            let c = families[i].get_or_insert_with(Counters::default);
             if name == *p {
                 c.prompt += v;
-                found = true;
-            } else if name == *g {
-                c.generated += v;
-                found = true;
             } else {
-                continue;
+                c.generated += v;
             }
             if model.is_none() {
                 model = label(name_labels, "model_name");
             }
         }
     }
-    found.then_some((c, model))
+    families.into_iter().flatten().next().map(|c| (c, model))
 }
 
 fn label(name_labels: &str, key: &str) -> Option<String> {
@@ -332,13 +333,66 @@ fn discover(proc_root: &Path) -> BTreeMap<String, String> {
         if !SERVER_NAMES.iter().any(|n| joined.contains(n)) {
             continue;
         }
-        let comm = fs::read_to_string(dir.join("comm")).unwrap_or_default();
-        let name = procs::name_from(comm.trim(), &cmdline);
-        for port in ports_of(&dir, &listening) {
-            out.insert(format!("127.0.0.1:{port}"), name.clone());
+        let ports = ports_of(&dir, &listening);
+        if ports.is_empty() {
+            continue;
+        }
+        // The server and its children: some servers run the model in a child process.
+        let pid: u32 = e.file_name().to_string_lossy().parse().unwrap_or(0);
+        let names = family_names(proc_root, pid);
+        for port in ports {
+            out.insert(format!("127.0.0.1:{port}"), names.clone());
         }
     }
     out
+}
+
+/// Names of a process and all its descendants, comma separated, as the process list names them.
+fn family_names(proc_root: &Path, root: u32) -> String {
+    let mut all: Vec<(u32, u32, String)> = Vec::new();
+    if let Ok(entries) = fs::read_dir(proc_root) {
+        for e in entries.flatten() {
+            let Ok(pid) = e.file_name().to_string_lossy().parse::<u32>() else {
+                continue;
+            };
+            let Ok(stat) = fs::read_to_string(e.path().join("stat")) else {
+                continue;
+            };
+            let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else {
+                continue;
+            };
+            let ppid = stat[close + 1..]
+                .split_whitespace()
+                .nth(1)
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(0);
+            let cmdline = fs::read(e.path().join("cmdline")).unwrap_or_default();
+            all.push((
+                pid,
+                ppid,
+                procs::name_from(&stat[open + 1..close], &cmdline),
+            ));
+        }
+    }
+    let mut family = vec![root];
+    let mut i = 0;
+    while i < family.len() {
+        let p = family[i];
+        family.extend(
+            all.iter()
+                .filter(|(_, pp, _)| *pp == p)
+                .map(|(pid, _, _)| *pid),
+        );
+        i += 1;
+    }
+    let mut names: Vec<String> = all
+        .iter()
+        .filter(|(pid, _, _)| family.contains(pid))
+        .map(|(_, _, n)| n.clone())
+        .collect();
+    names.sort();
+    names.dedup();
+    names.join(",")
 }
 
 /// The first model id from the OpenAI-compatible /v1/models endpoint.
@@ -392,6 +446,36 @@ vllm:num_requests_running{model_name="x"} 3.0
             }
         );
         assert!(parse_metrics("process_cpu_seconds_total 1.5\n").is_none());
+        // Strata publishes both families; the tokens must not count twice.
+        let both = "vllm:generation_tokens_total 50\nllamacpp:tokens_predicted_total 50\nllamacpp:prompt_tokens_total 7\n";
+        assert_eq!(
+            parse_metrics(both).unwrap().0,
+            Counters {
+                prompt: 7.0,
+                generated: 50.0
+            }
+        );
+    }
+
+    #[test]
+    fn family_includes_child_processes() {
+        let tmp = tempfile::tempdir().unwrap();
+        for (pid, ppid, comm, cmd) in [
+            (10, 1, "python3", &b"python3\0-m\0serve\0"[..]),
+            (
+                11,
+                10,
+                "strata",
+                b"/opt/strata/engine/strata\0--port\x009000\0",
+            ),
+            (12, 1, "bash", b"bash\0"),
+        ] {
+            let d = tmp.path().join(pid.to_string());
+            fs::create_dir_all(&d).unwrap();
+            fs::write(d.join("stat"), format!("{pid} ({comm}) S {ppid} 0 0")).unwrap();
+            fs::write(d.join("cmdline"), cmd).unwrap();
+        }
+        assert_eq!(family_names(tmp.path(), 10), "serve,strata");
     }
 
     #[test]

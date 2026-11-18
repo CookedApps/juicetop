@@ -579,8 +579,11 @@ fn models(reader: &Reader, procs: &[ProcRow], from: i64, now: i64) -> Result<Vec
         .token_totals(from, now + 1)?
         .into_iter()
         .map(|t| {
-            let p = procs.iter().find(|p| p.name == t.process);
-            let (kwh, cost) = p.map_or((0.0, 0.0), |p| (p.kwh, p.cost));
+            // `process` lists the server and its child processes, comma separated.
+            let (kwh, cost) = procs
+                .iter()
+                .filter(|p| t.process.split(',').any(|n| n == p.name))
+                .fold((0.0, 0.0), |(k, c), p| (k + p.kwh, c + p.cost));
             let per =
                 |v: f64, n: f64| (t.gen_tokens > 0 && v > 0.0).then(|| v / t.gen_tokens as f64 * n);
             ModelRow {

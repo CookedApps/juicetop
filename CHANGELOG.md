@@ -12,8 +12,9 @@ This file lists notable changes. The format follows
   cover 18 countries. Run it again with `juicetop setup` or `S`.
 - Device panels with power against the limit, utilization, clock, temperature, memory and a
   sparkline for each CPU and GPU.
-- Energy and cost per token for llama.cpp, vLLM, SGLang and Text Generation Inference servers,
-  found on the machine or passed with `--model-endpoint`.
+- Energy and cost per token for llama.cpp, vLLM, SGLang, Text Generation Inference and Strata
+  servers, found on the machine or passed with `--model-endpoint`. A server's energy includes its
+  child processes.
 - Price outlook for day/night and dynamic tariffs with the cheapest upcoming window.
 - Processes: CPU or GPU tag, sparklines, sorting (`e`, `n`, `c`) and a history view (`Enter`).
 - Energy bars with an axis, a unit, a selected bar (`[` `]`) and kWh, money or CO2 (`u`);
