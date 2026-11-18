@@ -22,7 +22,8 @@ dashboard turns it into watts, kWh, money and CO2. `README.md` has the user view
 | `src/tui/mod.rs` | App state, event loop, keys and mouse. |
 | `src/tui/ui.rs` | Drawing of the dashboard and its popups. |
 | `src/tui/onboarding.rs` | The four-step setup. |
-| `src/tui/theme.rs`, `src/tui/widgets.rs` | Colors (true color with a 256-color fallback) and drawing primitives: braille area graphs, bars, meters, sparklines. |
+| `src/tui/theme.rs` | Themes. Every color comes from `theme::t()`; add a theme with the `ide_theme!` macro in `THEMES`. |
+| `src/tui/widgets.rs` | Drawing primitives: braille area graphs, bars, meters, sparklines. |
 | `src/tui/settings.rs` | The settings form; each field parses and validates its own input. |
 | `src/demo.rs` | Deterministic example data (a two-GPU workstation). Used by `juicetop demo`, render tests and screenshots. |
 | `src/service.rs` | `juicetop service install/uninstall/status`; embeds `packaging/systemd/*.service`. |
@@ -34,6 +35,9 @@ dashboard turns it into watts, kWh, money and CO2. `README.md` has the user view
   base load and PSU efficiency get applied in `report.rs` and `dashboard.rs`, so a changed setting
   re-prices history. Keep estimates out of the database.
 - **`ui.rs` draws.** New numbers go into `dashboard.rs` with a test, then `ui.rs` formats them.
+- **Color goes to data.** Frames, titles and labels use the theme's neutral roles (`border`,
+  `title`, `dim`). Graphs, meters, money, device identity and status may use color. Never hardcode
+  a color; add a role to `Theme` if one is missing.
 - **Readers open the database read-only.** The database uses a rollback journal (not WAL) so an
   unprivileged reader can open a root-owned file. Readers must cope with older schemas: check
   `Store::detect` before relying on a new column or table.

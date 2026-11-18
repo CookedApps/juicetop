@@ -20,10 +20,14 @@ This file lists notable changes. The format follows
   colored by price on variable tariffs.
 - Totals with a trend against the previous day, week and month.
 - Stacked power graph by device (`g`), mouse support, true color with a 256-color fallback.
+- Themes: juicetop, juicetop vivid, Tokyo Night, Catppuccin Mocha, Dracula, Nord, Gruvbox Dark,
+  One Dark, Monokai, Solarized Dark and Light, GitHub Light and the terminal's own colors.
+  Choose one in the settings.
 
 ### Changed
 
-- New look: filled braille graphs with a power gradient, colored panels, a status header.
+- New look: filled braille graphs with a power gradient, a status header, and a neutral frame
+  that leaves color to the data.
 - Process names drop the interpreter: `train.py`, `vllm`, `ComfyUI/main.py`.
 - The system service may reach localhost (model servers) and nothing else.
 - Money shows the symbol before the amount for $, £ and ¥.

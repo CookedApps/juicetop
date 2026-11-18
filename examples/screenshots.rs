@@ -9,7 +9,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use juicetop::config::PriceMode;
-use juicetop::tui::{self, App};
+use juicetop::tui::{self, App, theme};
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Color, Modifier};
@@ -66,6 +66,18 @@ fn main() -> anyhow::Result<()> {
     key(&mut app, KeyCode::Right);
     key(&mut app, KeyCode::Right);
     write(&out, "setup", &tui::render(&app, COLS, ROWS))?;
+
+    let app = new_app();
+    write_themes(
+        &out,
+        &app,
+        &[
+            "nord",
+            "gruvbox-dark",
+            "catppuccin-mocha",
+            "solarized-light",
+        ],
+    )?;
 
     println!("wrote {}", out.display());
     Ok(())
@@ -132,7 +144,7 @@ fn escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
-fn write(dir: &std::path::Path, name: &str, buf: &Buffer) -> anyhow::Result<()> {
+fn rows_html(buf: &Buffer) -> String {
     let area = buf.area;
     let mut rows = String::new();
     for y in 0..area.height {
@@ -165,33 +177,104 @@ fn write(dir: &std::path::Path, name: &str, buf: &Buffer) -> anyhow::Result<()> 
         }
         rows.push_str("</div>\n");
     }
+    rows
+}
+
+/// A terminal window around a rendered buffer.
+fn window(buf: &Buffer, title: &str, bg: &str, fg: &str) -> String {
+    format!(
+        r#"<div class="win" style="background:{bg}">
+<div class="bar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="title" style="color:{fg}">{title}</span></div>
+<div class="term">
+{rows}</div></div>"#,
+        rows = rows_html(buf)
+    )
+}
+
+fn page(
+    dir: &std::path::Path,
+    name: &str,
+    body: &str,
+    width: u32,
+    height: u32,
+    columns: u32,
+) -> anyhow::Result<()> {
     let html = format!(
         r#"<!doctype html>
 <html><head><meta charset="utf-8"><style>
 html, body {{ margin: 0; }}
 body {{
-  width: {page_w}px; height: {page_h}px; display: flex; align-items: center; justify-content: center;
+  width: {width}px; height: {height}px; display: grid; grid-template-columns: repeat({columns}, auto);
+  gap: 40px; align-content: center; justify-content: center;
   background: linear-gradient(135deg, #2b1f4a 0%, #1b2a4a 55%, #10303a 100%);
 }}
 .win {{
-  background: #1a1b26; border-radius: 12px; overflow: hidden;
+  border-radius: 12px; overflow: hidden;
   box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.06);
 }}
-.bar {{ height: 34px; display: flex; align-items: center; padding: 0 14px; gap: 8px; background: #16161e; }}
+.bar {{ height: 34px; display: flex; align-items: center; padding: 0 14px; gap: 8px; background: rgba(0,0,0,.18); }}
 .dot {{ width: 12px; height: 12px; border-radius: 50%; }}
-.title {{ flex: 1; text-align: center; margin-right: 52px; color: #737aa2;
-  font: 500 13px 'JetBrains Mono', monospace; }}
+.title {{ flex: 1; text-align: center; margin-right: 52px; font: 500 13px 'JetBrains Mono', monospace; }}
 .term {{ padding: 14px 16px 16px; font: 400 14px/17px 'JetBrains Mono', 'DejaVu Sans Mono', monospace; }}
 .r {{ height: 17px; white-space: pre; }}
 .r span {{ display: inline-block; width: 0.6em; height: 17px; text-align: center; vertical-align: top; overflow: visible; }}
-</style></head><body><div class="win">
-<div class="bar"><span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span><span class="title">juicetop</span></div>
-<div class="term">
-{rows}</div></div></body></html>
-"#,
-        page_w = (area.width as f64 * 8.4) as u32 + 32 + 96,
-        page_h = area.height as u32 * 17 + 34 + 30 + 96,
+</style></head><body>
+{body}
+</body></html>
+"#
     );
     std::fs::write(dir.join(format!("{name}.html")), html)?;
     Ok(())
+}
+
+fn win_size(buf: &Buffer) -> (u32, u32) {
+    (
+        (buf.area.width as f64 * 8.4) as u32 + 32,
+        buf.area.height as u32 * 17 + 34 + 30,
+    )
+}
+
+fn write(dir: &std::path::Path, name: &str, buf: &Buffer) -> anyhow::Result<()> {
+    let (w, h) = win_size(buf);
+    page(
+        dir,
+        name,
+        &window(buf, "juicetop", "#1a1b26", "#737aa2"),
+        w + 96,
+        h + 96,
+        1,
+    )
+}
+
+/// Four themes side by side.
+fn write_themes(dir: &std::path::Path, app: &App, themes: &[&str]) -> anyhow::Result<()> {
+    let mut body = String::new();
+    let mut size = (0, 0);
+    for name in themes {
+        theme::set(name);
+        let buf = tui::render(app, 104, 32);
+        size = win_size(&buf);
+        let t = theme::t();
+        let bg = tone_hex(t.popup_bg, "#1a1b26");
+        let fg = tone_hex(t.dim, "#737aa2");
+        body.push_str(&window(&buf, t.label, &bg, &fg));
+    }
+    theme::set("juicetop");
+    let cols = 2;
+    let rows = themes.len().div_ceil(2) as u32;
+    page(
+        dir,
+        "themes",
+        &body,
+        size.0 * cols + 40 + 96,
+        size.1 * rows + 40 * (rows - 1) + 96,
+        cols,
+    )
+}
+
+fn tone_hex(t: theme::Tone, fallback: &str) -> String {
+    match t {
+        theme::Tone::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+        theme::Tone::Ansi(_) => fallback.to_string(),
+    }
 }

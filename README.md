@@ -30,6 +30,8 @@ tokens, and which hours tomorrow cost the least.
 - Energy per token for local model servers: llama.cpp, vLLM, SGLang and Text Generation Inference
 - The cheapest upcoming hours, for jobs you can schedule
 - A four-step setup on first start; changed settings apply to the whole history
+- Themes from popular editors: Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, One Dark,
+  Monokai, Solarized and GitHub Light, or your terminal's own colors
 - One binary. The collector uses about 1.5 % of one core and writes to disk once a minute
 
 ## Install
@@ -123,6 +125,28 @@ The mouse works for the range tabs, processes and bars.
   <img src="docs/images/detail.png" alt="The 24 hour history of one process" width="49%">
 </p>
 
+## Themes
+
+<p align="center">
+  <img src="docs/images/themes.png" alt="The dashboard in the Nord, Gruvbox Dark, Catppuccin Mocha and Solarized Light themes" width="100%">
+</p>
+
+The default theme keeps borders, titles and labels gray and uses color for data: the graphs,
+meters, money, devices and status. Open the settings with `s` and press `←` `→` on "Theme" to
+try the others live.
+
+| Theme | Name in the config |
+|---|---|
+| juicetop (default) | `juicetop` |
+| juicetop vivid, a color per panel | `juicetop-vivid` |
+| Tokyo Night, Catppuccin Mocha, Dracula, Nord | `tokyo-night`, `catppuccin-mocha`, `dracula`, `nord` |
+| Gruvbox Dark, One Dark, Monokai | `gruvbox-dark`, `one-dark`, `monokai` |
+| Solarized Dark, Solarized Light, GitHub Light | `solarized-dark`, `solarized-light`, `github-light` |
+| Your terminal's 16 colors | `terminal` |
+
+Pick a light theme if your terminal has a light background. Terminals without true color get the
+nearest of 256 colors.
+
 ## Energy per token
 
 The collector looks for model servers on your machine and reads their Prometheus counters every
@@ -171,6 +195,7 @@ The setup and the settings screen write `~/.config/juicetop/config.toml`. You ca
 ```toml
 country = "DE"
 currency = "€"
+theme = "juicetop"
 
 [price]
 mode = "fixed"              # "fixed", "time_of_use" or "dynamic"
