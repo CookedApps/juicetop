@@ -1,7 +1,6 @@
 //! The live snapshot: a small JSON file the daemon rewrites every second (on tmpfs),
 //! holding the last few minutes of per-second data that is not yet in the database.
 
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -126,14 +125,41 @@ pub struct DataPaths {
     pub live: PathBuf,
 }
 
-const SYSTEM_DB: &str = "/var/lib/juicetop/juicetop.db";
-const SYSTEM_LIVE: &str = "/run/juicetop/live.json";
-
 impl DataPaths {
+    /// Where a collector running as root (or as SYSTEM on Windows) keeps its data.
+    #[cfg(target_os = "linux")]
     pub fn system() -> Self {
         Self {
-            db: SYSTEM_DB.into(),
-            live: SYSTEM_LIVE.into(),
+            db: "/var/lib/juicetop/juicetop.db".into(),
+            live: "/run/juicetop/live.json".into(),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn system() -> Self {
+        Self {
+            db: "/Library/Application Support/juicetop/juicetop.db".into(),
+            live: "/var/run/juicetop/live.json".into(),
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn system() -> Self {
+        let dir = std::env::var_os("ProgramData")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("C:\\ProgramData"))
+            .join("juicetop");
+        Self {
+            db: dir.join("juicetop.db"),
+            live: dir.join("live.json"),
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    pub fn system() -> Self {
+        Self {
+            db: "/var/db/juicetop/juicetop.db".into(),
+            live: "/var/run/juicetop/live.json".into(),
         }
     }
 
@@ -162,7 +188,7 @@ impl DataPaths {
 
     /// Paths for a reader: config overrides first, then a system daemon's data, then the user's.
     pub fn for_reader(cfg: &Config) -> Self {
-        let auto = if Path::new(SYSTEM_DB).exists() {
+        let auto = if Self::system().db.exists() {
             Self::system()
         } else {
             Self::user()
@@ -174,10 +200,16 @@ impl DataPaths {
     }
 }
 
+/// Root on Unix, an elevated process on Windows.
+#[cfg(unix)]
 pub fn is_root() -> bool {
-    std::fs::metadata("/proc/self")
-        .map(|m| m.uid() == 0)
-        .unwrap_or(false)
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(windows)]
+pub fn is_root() -> bool {
+    crate::windows::is_elevated()
 }
 
 #[cfg(test)]

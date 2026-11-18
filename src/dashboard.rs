@@ -381,8 +381,11 @@ pub fn build_fast(
 
     if !running {
         fast.notes.push(match &reader.live {
-            Some(_) => "collector stopped: no fresh data (sudo juicetop service install)".into(),
-            None => "no collector running: sudo juicetop service install".into(),
+            Some(_) => format!(
+                "collector stopped: no fresh data ({})",
+                crate::service::INSTALL_HINT
+            ),
+            None => format!("no collector running: {}", crate::service::INSTALL_HINT),
         });
     }
     if let Some(live) = &reader.live {

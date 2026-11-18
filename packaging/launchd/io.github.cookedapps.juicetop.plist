@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- juicetop collector for macOS. `juicetop service install` copies this to /Library/LaunchDaemons. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.cookedapps.juicetop</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/juicetop</string>
+    <string>daemon</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardErrorPath</key>
+  <string>/var/log/juicetop.log</string>
+</dict>
+</plist>

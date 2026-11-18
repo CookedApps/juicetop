@@ -1,4 +1,4 @@
-//! `juicetop service install | uninstall | status`: sets up the collector as a systemd service.
+//! Linux: the collector as a systemd service.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -6,10 +6,11 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+use super::{remove_dir_if_exists, remove_if_exists, write_file};
 use crate::live::{DataPaths, is_root};
 
-pub const SYSTEM_UNIT: &str = include_str!("../packaging/systemd/juicetop.service");
-pub const USER_UNIT: &str = include_str!("../packaging/systemd/juicetop-user.service");
+pub const SYSTEM_UNIT: &str = include_str!("../../packaging/systemd/juicetop.service");
+pub const USER_UNIT: &str = include_str!("../../packaging/systemd/juicetop-user.service");
 
 const SYSTEM_BIN: &str = "/usr/local/bin/juicetop";
 const SYSTEM_UNIT_PATH: &str = "/etc/systemd/system/juicetop.service";
@@ -34,15 +35,6 @@ fn systemctl(user: bool, args: &[&str]) -> Result<()> {
     if !status.success() {
         bail!("systemctl {} failed", args.join(" "));
     }
-    Ok(())
-}
-
-fn write_file(path: &Path, content: &str, mode: u32) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-    }
-    std::fs::write(path, content).with_context(|| format!("writing {}", path.display()))?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
     Ok(())
 }
 
@@ -126,29 +118,6 @@ pub fn status(user: bool) -> Result<()> {
     }
     cmd.args(["status", "--no-pager", "juicetop"]).status()?;
     Ok(())
-}
-
-fn remove_if_exists(path: &Path) -> Result<()> {
-    match std::fs::remove_file(path) {
-        Ok(()) => {
-            println!("removed {}", path.display());
-            Ok(())
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e).with_context(|| format!("removing {}", path.display())),
-    }
-}
-
-fn remove_dir_if_exists(dir: Option<&Path>) -> Result<()> {
-    let Some(dir) = dir else { return Ok(()) };
-    match std::fs::remove_dir_all(dir) {
-        Ok(()) => {
-            println!("removed {}", dir.display());
-            Ok(())
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e).with_context(|| format!("removing {}", dir.display())),
-    }
 }
 
 #[cfg(test)]

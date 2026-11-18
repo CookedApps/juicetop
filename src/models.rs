@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::live::ModelLive;
+#[cfg(target_os = "linux")]
 use crate::procs;
 use crate::store::TokenMinute;
 
@@ -127,6 +128,7 @@ pub fn listening_ports(proc_root: &Path) -> HashMap<u64, u16> {
 }
 
 /// Ports a process listens on.
+#[cfg(target_os = "linux")]
 fn ports_of(pid_dir: &Path, listening: &HashMap<u64, u16>) -> Vec<u16> {
     let mut ports = Vec::new();
     let Ok(fds) = fs::read_dir(pid_dir.join("fd")) else {
@@ -309,6 +311,7 @@ fn endpoint_of(url: &str) -> String {
 }
 
 /// Model servers listening on this machine: "127.0.0.1:port" -> process name.
+#[cfg(target_os = "linux")]
 fn discover(proc_root: &Path) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let listening = listening_ports(proc_root);
@@ -347,7 +350,66 @@ fn discover(proc_root: &Path) -> BTreeMap<String, String> {
     out
 }
 
+/// Without `/proc` the listening sockets are unknown, so the port comes from the command line
+/// (`--port`) or the server's default.
+#[cfg(not(target_os = "linux"))]
+fn discover(_proc_root: &Path) -> BTreeMap<String, String> {
+    let mut sys = sysinfo::System::new();
+    let all = crate::sysproc::processes(&mut sys);
+    let mut out = BTreeMap::new();
+    for p in &all {
+        let joined = p.args.join(" ").to_lowercase();
+        if !SERVER_NAMES.iter().any(|n| joined.contains(n)) {
+            continue;
+        }
+        // A child of a server (a worker) is counted through its parent.
+        if p.parent.is_some_and(|pp| {
+            all.iter().any(|q| {
+                q.pid == pp && {
+                    let j = q.args.join(" ").to_lowercase();
+                    SERVER_NAMES.iter().any(|n| j.contains(n))
+                }
+            })
+        }) {
+            continue;
+        }
+        let Some(port) = port_from_args(&p.args) else {
+            continue;
+        };
+        let tree: Vec<(u32, u32, String)> = all
+            .iter()
+            .map(|q| (q.pid, q.parent.unwrap_or(0), q.name.clone()))
+            .collect();
+        out.insert(format!("127.0.0.1:{port}"), family_of(&tree, p.pid));
+    }
+    out
+}
+
+/// The port a server listens on: `--port N`, `--port=N`, or the server's default.
+pub fn port_from_args(args: &[String]) -> Option<u16> {
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if let Some(v) = a.strip_prefix("--port=") {
+            return v.parse().ok();
+        }
+        if a == "--port" {
+            return it.next().and_then(|v| v.parse().ok());
+        }
+    }
+    let joined = args.join(" ").to_lowercase();
+    [
+        ("llama-server", 8080),
+        ("vllm", 8000),
+        ("sglang", 30000),
+        ("text-generation", 3000),
+    ]
+    .iter()
+    .find(|(n, _)| joined.contains(n))
+    .map(|(_, port)| *port)
+}
+
 /// Names of a process and all its descendants, comma separated, as the process list names them.
+#[cfg(target_os = "linux")]
 fn family_names(proc_root: &Path, root: u32) -> String {
     let mut all: Vec<(u32, u32, String)> = Vec::new();
     if let Ok(entries) = fs::read_dir(proc_root) {
@@ -374,6 +436,11 @@ fn family_names(proc_root: &Path, root: u32) -> String {
             ));
         }
     }
+    family_of(&all, root)
+}
+
+/// Names of `root` and its descendants in a (pid, parent pid, name) table, sorted and unique.
+fn family_of(all: &[(u32, u32, String)], root: u32) -> String {
     let mut family = vec![root];
     let mut i = 0;
     while i < family.len() {
@@ -457,6 +524,25 @@ vllm:num_requests_running{model_name="x"} 3.0
         );
     }
 
+    #[test]
+    fn port_comes_from_flags_or_defaults() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            port_from_args(&a(&["llama-server", "--port", "9000"])),
+            Some(9000)
+        );
+        assert_eq!(
+            port_from_args(&a(&["vllm", "serve", "--port=8001"])),
+            Some(8001)
+        );
+        assert_eq!(
+            port_from_args(&a(&["C:\\ai\\llama-server.exe", "-m", "x.gguf"])),
+            Some(8080)
+        );
+        assert_eq!(port_from_args(&a(&["strata", "serve"])), None);
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn family_includes_child_processes() {
         let tmp = tempfile::tempdir().unwrap();

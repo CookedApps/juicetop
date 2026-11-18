@@ -43,17 +43,17 @@ enum Command {
     Summary,
     /// Show which sensors work on this machine, with a 1 second reading
     Sensors,
-    /// Install, remove or inspect the background collector (systemd)
+    /// Install, remove or inspect the background collector (systemd, launchd or Task Scheduler)
     Service {
         #[command(subcommand)]
         action: ServiceAction,
     },
     /// Run the collector in the foreground (what the service runs)
     Daemon {
-        /// Database file. Default: /var/lib/juicetop/juicetop.db as root, else ~/.local/share/juicetop/juicetop.db
+        /// Database file. Default: the system data folder as root or administrator, else your own
         #[arg(long)]
         db: Option<PathBuf>,
-        /// Live snapshot file. Default: /run/juicetop/live.json as root, else $XDG_RUNTIME_DIR/juicetop/live.json
+        /// Live snapshot file. Default: next to the system data as root or administrator, else your own
         #[arg(long)]
         live: Option<PathBuf>,
         /// Hours of per-second data to keep (minute data is kept forever)
@@ -86,7 +86,7 @@ enum ServiceAction {
         #[arg(long)]
         purge: bool,
     },
-    /// Show the collector's systemd status
+    /// Show the collector's service status
     Status {
         #[arg(long)]
         user: bool,

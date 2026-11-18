@@ -15,6 +15,9 @@ pub struct DeviceStats {
     proc_root: PathBuf,
     prev_cpu: Option<(u64, u64)>,
     cpu_temp: Option<PathBuf>,
+    /// CPU and memory figures where `/proc` does not exist.
+    #[cfg(not(target_os = "linux"))]
+    other: crate::sysproc::CpuStats,
 }
 
 impl DeviceStats {
@@ -23,16 +26,20 @@ impl DeviceStats {
             proc_root: "/proc".into(),
             prev_cpu: None,
             cpu_temp: find_cpu_temp(Path::new("/sys/class/hwmon")),
+            #[cfg(not(target_os = "linux"))]
+            other: crate::sysproc::CpuStats::new(),
         }
     }
 
     pub fn collect(&mut self, sensors: &[Sensor], nvml: Option<&Nvml>) -> Vec<DeviceStat> {
         let util = self.cpu_util();
+        #[cfg(not(target_os = "linux"))]
+        let other = self.other.read();
         sensors
             .iter()
             .map(|s| {
                 let key = s.info().key.clone();
-                match s {
+                let stat = match s {
                     Sensor::Nvidia(g) => nvidia(nvml, g.index, key),
                     s if s.info().kind == SourceKind::Cpu => DeviceStat {
                         key,
@@ -55,6 +62,27 @@ impl DeviceStats {
                             key,
                             ..Default::default()
                         }),
+                };
+                #[cfg(not(target_os = "linux"))]
+                let stat = if s.info().kind == SourceKind::Cpu {
+                    let (util_pct, clock_mhz, mem_used_mb, mem_total_mb) = other;
+                    stat.or(DeviceStat {
+                        key: String::new(),
+                        util_pct,
+                        clock_mhz,
+                        mem_used_mb,
+                        mem_total_mb,
+                        ..Default::default()
+                    })
+                } else {
+                    stat
+                };
+                match s {
+                    Sensor::Platform(p) => match p.stat() {
+                        Some(extra) => stat.or(extra),
+                        None => stat,
+                    },
+                    _ => stat,
                 }
             })
             .collect()
@@ -78,6 +106,19 @@ impl Default for DeviceStats {
 }
 
 impl DeviceStat {
+    /// Fills the fields this one lacks from `other`.
+    fn or(self, other: DeviceStat) -> DeviceStat {
+        DeviceStat {
+            key: self.key,
+            util_pct: self.util_pct.or(other.util_pct),
+            temp_c: self.temp_c.or(other.temp_c),
+            clock_mhz: self.clock_mhz.or(other.clock_mhz),
+            mem_used_mb: self.mem_used_mb.or(other.mem_used_mb),
+            mem_total_mb: self.mem_total_mb.or(other.mem_total_mb),
+            power_limit_w: self.power_limit_w.or(other.power_limit_w),
+        }
+    }
+
     /// System RAM, shown on the CPU panel.
     fn with_ram(mut self, proc_root: &Path) -> Self {
         if let Some((used, total)) = fs::read_to_string(proc_root.join("meminfo"))
@@ -219,11 +260,8 @@ mod tests {
     #[test]
     fn cpu_util_needs_two_reads() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut d = DeviceStats {
-            proc_root: tmp.path().into(),
-            prev_cpu: None,
-            cpu_temp: None,
-        };
+        let mut d = DeviceStats::new();
+        d.proc_root = tmp.path().into();
         fs::write(tmp.path().join("stat"), "cpu  100 0 0 900 0 0 0 0\n").unwrap();
         assert_eq!(d.cpu_util(), None);
         fs::write(tmp.path().join("stat"), "cpu  150 0 0 950 0 0 0 0\n").unwrap();

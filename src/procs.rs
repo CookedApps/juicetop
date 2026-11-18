@@ -175,10 +175,13 @@ pub fn name_from(comm: &str, cmdline: &[u8]) -> String {
         comm.to_string()
     };
 
+    // macOS framework builds call Python "Python".
+    let lower = base.to_ascii_lowercase();
     let is_interpreter = INTERPRETERS.iter().any(|i| {
-        base == *i
-            || base
-                .strip_prefix(i)
+        let i = i.to_ascii_lowercase();
+        lower == i
+            || lower
+                .strip_prefix(&i)
                 .is_some_and(|v| v.chars().all(|c| c.is_ascii_digit() || c == '.'))
     });
     if is_interpreter {
@@ -214,7 +217,7 @@ fn script_name(path: &str) -> String {
     ];
     let file = basename(path);
     if GENERIC.contains(&file.as_str()) {
-        let mut parts = path.rsplit('/').skip(1);
+        let mut parts = path.rsplit(['/', '\\']).skip(1);
         if let Some(dir) = parts.next().filter(|d| !d.is_empty() && *d != ".") {
             return format!("{}/{file}", basename(dir));
         }
@@ -223,9 +226,16 @@ fn script_name(path: &str) -> String {
 }
 
 fn basename(path: &str) -> String {
-    let name = path.rsplit('/').next().unwrap_or(path);
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    let name = name.strip_suffix(".exe").unwrap_or(name);
     name.chars().take(40).collect()
 }
+
+/// The process tracker for this system: `/proc` on Linux, `sysinfo` elsewhere.
+#[cfg(target_os = "linux")]
+pub type Tracker = ProcTracker;
+#[cfg(not(target_os = "linux"))]
+pub type Tracker = crate::sysproc::SysTracker;
 
 /// Splits `joules` across `weights` proportionally. With no positive weight, everything goes
 /// to `fallback`.

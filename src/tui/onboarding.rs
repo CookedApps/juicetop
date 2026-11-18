@@ -530,7 +530,7 @@ fn draw_welcome(f: &mut Frame, ob: &Onboarding, area: Rect) {
                 "collector is not running. Start it later with ",
                 fg(theme::t().text),
             ),
-            Span::styled("sudo juicetop service install", bold(theme::t().accent)),
+            Span::styled(crate::service::INSTALL_HINT, bold(theme::t().accent)),
         ]));
     }
     lines.push(Line::raw(""));

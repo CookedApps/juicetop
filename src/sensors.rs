@@ -4,12 +4,16 @@
 //!   falling back to the AMD APU socket power (PPT) that amdgpu exposes to every user.
 //! * NVIDIA GPUs: NVML total energy counter, falling back to instantaneous power.
 //! * AMD discrete GPUs: amdgpu hwmon power.
+//! * macOS (Apple Silicon): CPU, GPU and Neural Engine energy from `powermetrics` (root only).
+//! * Windows: CPU package power from the Energy Meter performance counters.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use nvml_wrapper::Nvml;
 use serde::{Deserialize, Serialize};
+
+use crate::live::DeviceStat;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -37,6 +41,19 @@ pub enum Sensor {
     Rapl(Rapl),
     Hwmon(HwmonPower),
     Nvidia(NvidiaGpu),
+    /// A sensor from the macOS or Windows module.
+    Platform(Box<dyn PlatformSensor>),
+}
+
+/// A sensor that only exists on one operating system.
+pub trait PlatformSensor {
+    fn info(&self) -> &SourceInfo;
+    /// Joules since the last call; `dt` is the wall time since then.
+    fn read(&mut self, dt: f64) -> Option<Reading>;
+    /// Live details the sensor knows besides power (utilization, clock).
+    fn stat(&self) -> Option<DeviceStat> {
+        None
+    }
 }
 
 impl Sensor {
@@ -61,6 +78,7 @@ impl Sensor {
             Sensor::Rapl(s) => &s.info,
             Sensor::Hwmon(s) => &s.info,
             Sensor::Nvidia(s) => &s.info,
+            Sensor::Platform(s) => s.info(),
         }
     }
 
@@ -71,6 +89,7 @@ impl Sensor {
             Sensor::Rapl(s) => s.read(),
             Sensor::Hwmon(s) => s.read(dt),
             Sensor::Nvidia(s) => nvml.and_then(|n| s.read(n, dt)),
+            Sensor::Platform(s) => s.read(dt),
         }
     }
 }
@@ -80,6 +99,31 @@ pub fn probe(nvml: Option<&Nvml>) -> (Vec<Sensor>, Vec<String>) {
     let mut sensors = Vec::new();
     let mut notes = Vec::new();
 
+    #[cfg(target_os = "linux")]
+    probe_linux(&mut sensors, &mut notes);
+    #[cfg(target_os = "macos")]
+    crate::macos::probe(&mut sensors, &mut notes);
+    #[cfg(windows)]
+    crate::windows::probe(&mut sensors, &mut notes);
+
+    match nvml {
+        Some(nvml) => {
+            let count = nvml.device_count().unwrap_or(0);
+            for index in 0..count {
+                match NvidiaGpu::probe(nvml, index) {
+                    Ok(g) => sensors.push(Sensor::Nvidia(g)),
+                    Err(e) => notes.push(format!("NVIDIA GPU {index}: {e}")),
+                }
+            }
+        }
+        None => notes.push("NVML not available (no NVIDIA driver)".into()),
+    }
+
+    (sensors, notes)
+}
+
+#[cfg(target_os = "linux")]
+fn probe_linux(sensors: &mut Vec<Sensor>, notes: &mut Vec<String>) {
     match Rapl::probe(Path::new("/sys/class/powercap")) {
         Ok(Some(r)) => sensors.push(Sensor::Rapl(r)),
         Ok(None) => notes.push("no RAPL package domain found".into()),
@@ -100,21 +144,6 @@ pub fn probe(nvml: Option<&Nvml>) -> (Vec<Sensor>, Vec<String>) {
             HwmonRole::DiscreteGpu => sensors.push(Sensor::Hwmon(h)),
         }
     }
-
-    match nvml {
-        Some(nvml) => {
-            let count = nvml.device_count().unwrap_or(0);
-            for index in 0..count {
-                match NvidiaGpu::probe(nvml, index) {
-                    Ok(g) => sensors.push(Sensor::Nvidia(g)),
-                    Err(e) => notes.push(format!("NVIDIA GPU {index}: {e}")),
-                }
-            }
-        }
-        None => notes.push("NVML not available (no NVIDIA driver)".into()),
-    }
-
-    (sensors, notes)
 }
 
 // ---------------------------------------------------------------- RAPL
@@ -206,6 +235,8 @@ pub fn counter_delta(prev: u64, now: u64, max: u64) -> u64 {
 
 // ---------------------------------------------------------------- hwmon (amdgpu)
 
+// The hwmon tree exists only on Linux; the code stays portable for its tests.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HwmonRole {
     /// An APU's integrated GPU: amdgpu reports the whole socket (CPU + iGPU) as PPT.
@@ -213,12 +244,14 @@ enum HwmonRole {
     DiscreteGpu,
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct HwmonPower {
     info: SourceInfo,
     role: HwmonRole,
     power_path: PathBuf,
 }
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 impl HwmonPower {
     fn probe(root: &Path) -> Vec<HwmonPower> {
         let Ok(entries) = fs::read_dir(root) else {
@@ -325,17 +358,36 @@ impl NvidiaGpu {
 
 // ---------------------------------------------------------------- helpers
 
-fn cpu_label(method: &str) -> String {
-    let model = fs::read_to_string("/proc/cpuinfo").ok().and_then(|s| {
-        s.lines()
-            .find(|l| l.starts_with("model name"))
-            .and_then(|l| l.split_once(':'))
-            .map(|(_, v)| v.trim().to_string())
-    });
+pub(crate) fn cpu_label(method: &str) -> String {
+    let model = fs::read_to_string("/proc/cpuinfo")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("model name"))
+                .and_then(|l| l.split_once(':'))
+                .map(|(_, v)| v.trim().to_string())
+        })
+        .or_else(other_cpu_model);
     match model {
         Some(m) => format!("{m} ({method})"),
         None => format!("CPU ({method})"),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn other_cpu_model() -> Option<String> {
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn other_cpu_model() -> Option<String> {
+    use sysinfo::{CpuRefreshKind, RefreshKind, System};
+    let sys =
+        System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing()));
+    sys.cpus()
+        .first()
+        .map(|c| c.brand().trim().to_string())
+        .filter(|b| !b.is_empty())
 }
 
 pub(crate) fn read_trim(path: &Path) -> Option<String> {

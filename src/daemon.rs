@@ -14,7 +14,7 @@ use nvml_wrapper::enums::device::UsedGpuMemory;
 use crate::devices::DeviceStats;
 use crate::live::{LIVE_SECONDS, LiveProc, LiveSample, LiveSnapshot, LiveSource};
 use crate::models::ModelWatcher;
-use crate::procs::{self, ProcTracker};
+use crate::procs::{self, Tracker};
 use crate::sensors::{self, NvidiaGpu, Sensor, SourceKind};
 use crate::store::{MinuteBatch, ProcEnergy, Store};
 
@@ -37,6 +37,8 @@ pub struct DaemonOpts {
 }
 
 pub fn run(opts: DaemonOpts) -> Result<()> {
+    #[cfg(windows)]
+    crate::windows::detach_console();
     let stop = Arc::new(AtomicBool::new(false));
     signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&stop))?;
     signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&stop))?;
@@ -74,7 +76,7 @@ pub fn run(opts: DaemonOpts) -> Result<()> {
         })
         .collect();
     let retention = opts.raw_retention_hours as i64 * 3600;
-    let mut tracker = ProcTracker::new();
+    let mut tracker = Tracker::new();
     if opts.procs {
         tracker.scan();
     }
@@ -217,7 +219,7 @@ fn top_n(
 fn attribute(
     sensors: &mut [Sensor],
     readings: &[Option<f64>],
-    tracker: &mut ProcTracker,
+    tracker: &mut Tracker,
     nvml: Option<&Nvml>,
 ) -> HashMap<String, ProcEnergy> {
     let busy = tracker.scan();
@@ -248,7 +250,7 @@ fn attribute(
 
 /// GPU weights per process: SM utilization since the last call, or, when the GPU is idle,
 /// the memory each process holds (it keeps the GPU powered up).
-fn gpu_weights(nvml: &Nvml, gpu: &mut NvidiaGpu, tracker: &ProcTracker) -> HashMap<String, f64> {
+fn gpu_weights(nvml: &Nvml, gpu: &mut NvidiaGpu, tracker: &Tracker) -> HashMap<String, f64> {
     let mut w: HashMap<String, f64> = HashMap::new();
     let Ok(dev) = nvml.device_by_index(gpu.index) else {
         return w;
