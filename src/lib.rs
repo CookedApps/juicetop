@@ -13,3 +13,4 @@ pub mod procs;
 pub mod report;
 pub mod sensors;
 pub mod store;
+pub mod tui;
