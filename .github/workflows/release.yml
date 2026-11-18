@@ -10,6 +10,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Built on the oldest available glibc so the binaries run on most distributions.
@@ -17,22 +18,47 @@ jobs:
             os: ubuntu-22.04
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-apple-darwin
+            os: macos-14
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --locked
-      - name: Package
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package (Linux, macOS)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           name=juicetop-${{ matrix.target }}
+          bin=target/${{ matrix.target }}/release/juicetop
+          # Stripping can break the linker's ad-hoc signature, which Apple Silicon requires.
+          if [ "$RUNNER_OS" = macOS ]; then codesign --force --sign - "$bin"; fi
           mkdir -p dist
-          cp target/release/juicetop README.md LICENSE-MIT LICENSE-APACHE dist/
+          cp "$bin" README.md LICENSE-MIT LICENSE-APACHE dist/
           tar -czf $name.tar.gz -C dist .
-          sha256sum $name.tar.gz > $name.tar.gz.sha256
+          shasum -a 256 $name.tar.gz > $name.tar.gz.sha256
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "juicetop-${{ matrix.target }}"
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/juicetop.exe, README.md, LICENSE-MIT, LICENSE-APACHE dist/
+          Compress-Archive dist/* "$name.zip"
+          $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File -Encoding ascii -NoNewline "$name.zip.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: juicetop-*.tar.gz*
+          path: |
+            juicetop-*.tar.gz*
+            juicetop-*.zip*
 
   release:
     needs: build
@@ -45,4 +71,4 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes juicetop-*.tar.gz*
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes juicetop-*.tar.gz* juicetop-*.zip*
