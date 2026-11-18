@@ -228,15 +228,16 @@ pub fn dots(values: &[f64], width: usize, max: f64, color: Tone) -> Vec<Span<'st
         .collect()
 }
 
-/// A segmented meter like btop's: `width` squares, filled ones colored along the gradient and
-/// rising out of the background from dark on the left to full color on the right.
+/// A segmented meter like btop's: `width` squares, filled ones colored along the gradient.
 pub fn meter(frac: f64, width: usize, gradient: Gradient) -> Vec<Span<'static>> {
     meter_by(frac, width, |t| gradient.at(t))
 }
 
-/// A meter in a single color, with the same dark-to-bright rise as [`meter`].
+/// A meter in one color that rises out of the background: dark on the left, full color on the
+/// right, like btop's meters.
 pub fn meter_tone(frac: f64, width: usize, color: Tone) -> Vec<Span<'static>> {
-    meter_by(frac, width, |_| color)
+    let th = theme::t();
+    meter_by(frac, width, |t| th.rise(color, t))
 }
 
 fn meter_by(frac: f64, width: usize, color: impl Fn(f64) -> Tone) -> Vec<Span<'static>> {
@@ -249,11 +250,7 @@ fn meter_by(frac: f64, width: usize, color: impl Fn(f64) -> Tone) -> Vec<Span<'s
         } else {
             1.0
         };
-        let tone = if i < filled {
-            th.rise(color(t), t)
-        } else {
-            th.faint
-        };
+        let tone = if i < filled { color(t) } else { th.faint };
         spans.push(Span::styled("■", Style::new().fg(tone.color())));
     }
     spans

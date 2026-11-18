@@ -487,10 +487,10 @@ fn draw_device(f: &mut Frame, app: &App, s: &SourceView, area: Rect) {
     )];
     let label = format!(" of {}", fmt_watts(limit));
     let meter_w = w.saturating_sub(9 + label.chars().count()).max(4);
-    l1.extend(widgets::meter(
+    l1.extend(widgets::meter_tone(
         now_w.unwrap_or(0.0) / limit,
         meter_w,
-        theme::t().power,
+        color,
     ));
     l1.push(Span::styled(label, fg(theme::t().dim)));
 
@@ -498,11 +498,7 @@ fn draw_device(f: &mut Frame, app: &App, s: &SourceView, area: Rect) {
     let mut l2 = Vec::new();
     if let Some(u) = stat.and_then(|d| d.util_pct) {
         l2.push(Span::styled("    util ", fg(theme::t().dim)));
-        l2.extend(widgets::meter(
-            u / 100.0,
-            (w / 5).clamp(4, 12),
-            theme::t().power,
-        ));
+        l2.extend(widgets::meter_tone(u / 100.0, (w / 5).clamp(4, 12), color));
         l2.push(Span::styled(format!(" {u:>3.0}%"), fg(theme::t().text)));
     }
     if let Some(c) = stat.and_then(|d| d.clock_mhz) {
