@@ -6,6 +6,14 @@ This file lists notable changes. The format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-18
+
+### Fixed
+
+- macOS: reinstalling or updating the service no longer leaves the collector stopped
+  ("Bootstrap failed: 5").
+- macOS: `juicetop sensors` without sudo says to run it with sudo.
+
 ## [0.2.1] - 2026-11-18
 
 ### Fixed
