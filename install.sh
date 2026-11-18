@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 # Installs juicetop and starts the background collector. Linux and macOS (macOS is untested).
-# On Windows use install.ps1.
+# On Windows use install.ps1. Run it again to update; it keeps your settings, data and the kind
+# of collector you chose.
 #
 #   curl -fsSL https://raw.githubusercontent.com/CookedApps/juicetop/main/install.sh | sh
 #
@@ -12,7 +13,16 @@ set -eu
 
 repo="CookedApps/juicetop"
 version="${JUICETOP_VERSION:-latest}"
-service="${JUICETOP_SERVICE:-system}"
+service="${JUICETOP_SERVICE:-}"
+
+# An update keeps the collector the user picked last time.
+if [ -z "$service" ]; then
+  if [ -f "$HOME/.config/systemd/user/juicetop.service" ] && [ ! -f /etc/systemd/system/juicetop.service ]; then
+    service="user"
+  else
+    service="system"
+  fi
+fi
 
 say() { printf '\033[1;33m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -23,7 +33,7 @@ case "$(uname -s)" in
   Darwin)
     os="apple-darwin"
     # macOS gives power readings only to root, so the collector must be the system service.
-    [ "$service" = "user" ] && die "on macOS the collector needs root; use the default system service"
+    if [ "$service" = "user" ]; then die "on macOS the collector needs root; use the default system service"; fi
     ;;
   *) die "unsupported system $(uname -s); on Windows run install.ps1" ;;
 esac
@@ -55,6 +65,14 @@ fetch() {
   fi
 }
 
+old=""
+for b in /usr/local/bin/juicetop "$HOME/.local/bin/juicetop" "$(command -v juicetop 2>/dev/null || true)"; do
+  if [ -n "$b" ] && [ -x "$b" ]; then
+    old="$("$b" --version 2>/dev/null | awk '{print $2}')"
+    break
+  fi
+done
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -78,6 +96,13 @@ else
   die "download failed and cargo is not installed (https://rustup.rs)"
 fi
 
+new="$("$bin" --version 2>/dev/null | awk '{print $2}')"
+if [ -n "$old" ]; then
+  say "updating juicetop $old to $new ($service collector)"
+else
+  say "installing juicetop $new"
+fi
+
 case "$service" in
   system)
     say "installing /usr/local/bin/juicetop and the system service"
@@ -97,4 +122,4 @@ case "$service" in
   *) die "JUICETOP_SERVICE must be system, user or none" ;;
 esac
 
-say "done. Open the dashboard with: juicetop"
+say "done. Open the dashboard with: juicetop (run this script again to update)"

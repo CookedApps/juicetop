@@ -112,6 +112,12 @@ pub fn install(user: bool) -> Result<()> {
             if let Some(dir) = bin.parent() {
                 std::fs::create_dir_all(dir)?;
             }
+            // A running binary cannot be overwritten on Windows, but it can be renamed.
+            if bin.exists() {
+                let old = bin.with_file_name("juicetop.old.exe");
+                let _ = std::fs::remove_file(&old);
+                let _ = std::fs::rename(&bin, &old);
+            }
             std::fs::copy(&exe, &bin)
                 .with_context(|| format!("copying {} to {}", exe.display(), bin.display()))?;
             println!("installed {}", bin.display());

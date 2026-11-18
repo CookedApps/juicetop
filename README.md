@@ -66,6 +66,9 @@ Then open the dashboard:
 juicetop
 ```
 
+To update, run the same install command again. It keeps your settings, your data and the kind
+of collector you picked, and restarts the collector on the new version.
+
 The first start walks you through the setup. `juicetop demo` shows the dashboard with generated
 data while yours is still coming in.
 
