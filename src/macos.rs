@@ -21,8 +21,8 @@ const POWERMETRICS: &str = "/usr/bin/powermetrics";
 pub fn probe(sensors: &mut Vec<Sensor>, notes: &mut Vec<String>) {
     if !is_root() {
         notes.push(
-            "macOS reports CPU and GPU energy only to root: install the system service \
-             (sudo juicetop service install)"
+            "macOS gives power readings only to root: run this with sudo \
+             (the collector service already runs as root)"
                 .into(),
         );
         return;

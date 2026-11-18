@@ -4,7 +4,8 @@
 //! service: a per-user agent would have no sensor to read.
 
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
@@ -29,6 +30,48 @@ fn launchctl(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// True while launchd still knows the job.
+fn loaded() -> bool {
+    Command::new("launchctl")
+        .args(["print", &format!("system/{LABEL}")])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// Stops and unloads the job. `bootout` returns before launchd has finished, and a `bootstrap`
+/// in that window fails with "Input/output error", so this waits until the job is gone.
+fn unload() {
+    if !loaded() {
+        return;
+    }
+    let _ = Command::new("launchctl")
+        .args(["bootout", &format!("system/{LABEL}")])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    for _ in 0..50 {
+        if !loaded() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Loads the job, retrying while launchd is still busy with the previous one.
+fn load() -> Result<()> {
+    let mut last = Ok(());
+    for _ in 0..5 {
+        last = launchctl(&["bootstrap", "system", PLIST_PATH]);
+        if last.is_ok() || loaded() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    last
+}
+
 pub fn install(user: bool) -> Result<()> {
     if user {
         bail!(
@@ -40,11 +83,8 @@ pub fn install(user: bool) -> Result<()> {
         bail!("installing the system service needs root; {SUDO_HINT}");
     }
     let exe = std::env::current_exe().context("finding the juicetop binary")?;
-    let target = format!("system/{LABEL}");
     // Stop a running copy before its binary is replaced.
-    let _ = Command::new("launchctl")
-        .args(["bootout", &target])
-        .status();
+    unload();
     if exe != Path::new(SYSTEM_BIN) {
         std::fs::create_dir_all("/usr/local/bin")?;
         let tmp = format!("{SYSTEM_BIN}.new");
@@ -53,7 +93,7 @@ pub fn install(user: bool) -> Result<()> {
         println!("installed {SYSTEM_BIN}");
     }
     write_file(Path::new(PLIST_PATH), PLIST, 0o644)?;
-    launchctl(&["bootstrap", "system", PLIST_PATH])?;
+    load()?;
     println!("installed {PLIST_PATH}");
     println!("the collector is running and starts at boot (log: /var/log/juicetop.log)");
     println!("data: {}", DataPaths::system().db.display());
@@ -70,9 +110,7 @@ pub fn uninstall(user: bool, purge: bool) -> Result<()> {
             "removing the system service needs root: sudo \"$(command -v juicetop)\" service uninstall"
         );
     }
-    let _ = Command::new("launchctl")
-        .args(["bootout", &format!("system/{LABEL}")])
-        .status();
+    unload();
     remove_if_exists(Path::new(PLIST_PATH))?;
     remove_if_exists(Path::new(SYSTEM_BIN))?;
     if purge {
