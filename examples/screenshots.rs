@@ -72,8 +72,8 @@ fn main() -> anyhow::Result<()> {
         &out,
         &app,
         &[
-            "nord",
-            "gruvbox-dark",
+            "juicetop-muted",
+            "greyscale",
             "catppuccin-mocha",
             "solarized-light",
         ],

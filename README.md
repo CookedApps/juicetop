@@ -31,7 +31,7 @@ tokens, and which hours tomorrow cost the least.
 - The cheapest upcoming hours, for jobs you can schedule
 - A four-step setup on first start; changed settings apply to the whole history
 - Themes from popular editors: Tokyo Night, Catppuccin, Dracula, Nord, Gruvbox, One Dark,
-  Monokai, Solarized and GitHub Light, or your terminal's own colors
+  Monokai, Solarized and GitHub Light, plus muted, greyscale and your terminal's own colors
 - One binary. The collector uses about 1.5 % of one core and writes to disk once a minute
 
 ## Install
@@ -128,7 +128,7 @@ The mouse works for the range tabs, processes and bars.
 ## Themes
 
 <p align="center">
-  <img src="docs/images/themes.png" alt="The dashboard in the Nord, Gruvbox Dark, Catppuccin Mocha and Solarized Light themes" width="100%">
+  <img src="docs/images/themes.png" alt="The dashboard in the juicetop muted, Greyscale, Catppuccin Mocha and Solarized Light themes" width="100%">
 </p>
 
 The default theme keeps borders, titles and labels gray and uses color for data: the graphs,
@@ -139,6 +139,8 @@ try the others live.
 |---|---|
 | juicetop (default) | `juicetop` |
 | juicetop vivid, a color per panel | `juicetop-vivid` |
+| juicetop muted, soft and desaturated | `juicetop-muted` |
+| Greyscale, no color at all | `greyscale` |
 | Tokyo Night, Catppuccin Mocha, Dracula, Nord | `tokyo-night`, `catppuccin-mocha`, `dracula`, `nord` |
 | Gruvbox Dark, One Dark, Monokai | `gruvbox-dark`, `one-dark`, `monokai` |
 | Solarized Dark, Solarized Light, GitHub Light | `solarized-dark`, `solarized-light`, `github-light` |

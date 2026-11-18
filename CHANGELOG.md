@@ -20,7 +20,7 @@ This file lists notable changes. The format follows
   colored by price on variable tariffs.
 - Totals with a trend against the previous day, week and month.
 - Stacked power graph by device (`g`), mouse support, true color with a 256-color fallback.
-- Themes: juicetop, juicetop vivid, Tokyo Night, Catppuccin Mocha, Dracula, Nord, Gruvbox Dark,
+- Themes: juicetop, juicetop vivid, juicetop muted, Greyscale, Tokyo Night, Catppuccin Mocha, Dracula, Nord, Gruvbox Dark,
   One Dark, Monokai, Solarized Dark and Light, GitHub Light and the terminal's own colors.
   Choose one in the settings.
 
