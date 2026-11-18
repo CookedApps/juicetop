@@ -18,9 +18,10 @@ RuntimeDirectory=juicetop
 RuntimeDirectoryMode=0755
 UMask=0022
 
-# The collector needs no network and writes nowhere else.
-PrivateNetwork=yes
-RestrictAddressFamilies=AF_UNIX
+# The collector writes nowhere else and talks only to local model servers (token counters).
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
